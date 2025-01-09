@@ -37,7 +37,7 @@ usage:
 plugin.load({ id: 'template_plugin', url: 'template/index.html', drag: true, reload: true });
 ```
 
-Once you have loaded the plugin your `template_plugin` or any other id specified will be added to the global scope of the window. You can define variables within your plugin like follows:
+Once you have loaded the plugin, your `template_plugin` or any other id specified will be added to the global scope of the window. You can define variables within your plugin like follows:
 
 ```
 window[id] = {
@@ -55,10 +55,10 @@ You can check if your plugin exists by using `if(utils.pluginExists('template_pl
 
 You can load html and standalone javascript plugins. If you create a plugin that contains only javascript, it's good practise to put them into a .js file and load the plugin like below:
 ```
-plugin.load({ id: 'template_plugin', url: 'template/index.js', drag: true, reload: true });
+plugin.load({ id: 'template_plugin', url: 'template/index.js', reload: true });
 ```
 
-Plugins Don't need javascript to work, you can create a plugin like this:
+Plugins Don't need to write any javascript for your plugins to work, you can create a plugin like this:
 ```
 <div class="window window_bg text-white">
     <div class="window_title p-2">
