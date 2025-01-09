@@ -1,6 +1,6 @@
-Notification plugin for Renzora Engine
+## Notification plugin for Renzora Engine
 
-usage:
+# usage:
 
 ```
 plugin.load({
