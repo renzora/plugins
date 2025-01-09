@@ -53,7 +53,7 @@ window[id] = {
 
 You can check if your plugin exists by using `if(utils.pluginExists('template_plugin'));` This is useful as a failsafe when using the plugins variables or functions in other areas of the code to protect against scripts breaking if you destroy your plugin.
 
-You can load html and standalone javascript plugins. If you create a plugin that contains only javascript, it's good practise to put them into a .js file and load the plugin like below:
+You can load html and/or standalone javascript plugins. If you create a plugin that contains only javascript, it's good practise to put them into a .js file and load the plugin like below:
 ```
 plugin.load({ id: 'template_plugin', url: 'template/index.js', reload: true });
 ```
