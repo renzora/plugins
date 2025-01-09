@@ -58,7 +58,7 @@ You can load html and/or standalone javascript plugins. If you create a plugin t
 plugin.load({ id: 'template_plugin', url: 'template/index.js', reload: true });
 ```
 
-Plugins Don't need to write any javascript for your plugins to work, you can create a plugin like this:
+You don't need to write any javascript for your plugins to work, you can create a plugin like this:
 ```
 <div class="window window_bg text-white">
     <div class="window_title p-2">
