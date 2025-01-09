@@ -7,7 +7,7 @@ plugin.load({
     drag: false,
     reload: true,
     after: function() {
-        weather_plugin.snow.snowActive = true;
+        weather_plugin.snow.active = true;
     }
 });
 ```
