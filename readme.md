@@ -37,7 +37,7 @@ usage:
 plugin.load({ id: 'template_plugin', url: 'template/index.html', drag: true, reload: true });
 ```
 
-Once you have loaded the plugin your `template_plugin` or anything you decide to call your plugin will be added to the global scope of the window. You can define variables within your plugin like follows:
+Once you have loaded the plugin your `template_plugin` or any other id specified will be added to the global scope of the window. You can define variables within your plugin like follows:
 
 ```
 window[id] = {
