@@ -5,8 +5,9 @@ plugin.load({
     id: 'notif',
     url: 'notifs/index.js',
     drag: false,
-    reload: true
+    reload: true,
+    after: function() {
+        notif.show('notification_id', 'change this message to anything you want');
+    }
 });
-
-notif.show('notification_id', 'change this message to anything you want');
 ```
