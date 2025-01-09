@@ -50,3 +50,5 @@ window[id] = {
 ```
 
 `this` refers to the local scope of the plugin, in this example `template_plugin`. If you wanted to access `custom_variable` from outside of the plugin you would use `template_plugin.custom_variable`
+
+You can check if your plugin exists by using `if(utils.pluginExists('template_plugin'));` This is useful as a failsafe when using the plugins variables or functions in other areas of the code to protect against scripts breaking if you destroy your plugin.
