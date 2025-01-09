@@ -1,5 +1,5 @@
 window[id] = {
-    id: id,
+id: id,
 
 start: function() {
     this.rain.create(0.7);
@@ -8,7 +8,7 @@ start: function() {
 },
 
 unmount: function() {
-    console.log(`Weather Plugin unmounted: ${this.id}`);
+    
 },
 
 snow: {
@@ -20,7 +20,6 @@ snow: {
     overrideActive: false,
 
     create: function (opacity) {
-        console.log('creating snow');
         this.snowflakes = [];
         for (let i = 0; i < this.maxSnowflakes; i++) {
             this.snowflakes.push({
