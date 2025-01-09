@@ -1,7 +1,5 @@
 # Notification plugin for Renzora Engine
 
-## Usage
-
 ```
 plugin.load({
     id: 'notif',
