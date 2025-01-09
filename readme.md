@@ -44,7 +44,7 @@ window[id] = {
     id: id,
     custom_variable: 'hello renzora',
     start: function() {
-        console.log(`${this.custom_variable}`);
+        console.log(this.custom_variable);
     }
 };
 ```
