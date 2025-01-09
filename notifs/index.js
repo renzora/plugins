@@ -5,7 +5,6 @@ window[id] = {
 
     show: function(id, message, replace = false) {
         return new Promise(resolve => {
-          audio.playAudio("notification", assets.use('notification'), 'sfx', false);
             let container = document.getElementById('notification');
             if (!container) {
                 container = document.createElement('div');
