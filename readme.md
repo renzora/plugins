@@ -1,6 +1,6 @@
-# Renzora Plugins
+# Renzora Engine (Rengine) Plugins
 
-- Plugins are the backbone of Renzora and allow you to create anything you like from user interfaces, menus, scripts and more. To create a plugin you can follow the steps below:
+- Plugins are the backbone of Renzora Engine and allow you to create anything you like from user interfaces, menus, scripts and more. To create a plugin you can follow the steps below:
 
 Template Code
 ```
