@@ -1,0 +1,476 @@
+{% if auth %}
+<div class="p-2">
+
+  <button id="btn-new-server" class="bg-green-600 hover:bg-green-700 text-white font-bold p-2 rounded shadow-md">
+    New Server
+  </button>
+
+  <div id="server-list" class="mt-4 text-white">
+    Loading servers...
+  </div>
+</div>
+
+<script>
+var serverConsole = {
+  eventListeners: [],
+
+  start: function() {
+    this.attachGlobalListeners();
+    this.loadServers();
+  },
+
+  attachGlobalListeners: function() {
+    const newServerBtn = document.getElementById("btn-new-server");
+    if (newServerBtn) {
+      const listener = this.handleCreateServerClick.bind(this);
+      newServerBtn.addEventListener("click", listener);
+      this.eventListeners.push({
+        element: newServerBtn,
+        event: "click",
+        handler: listener
+      });
+    }
+  },
+
+  handleCreateServerClick: function() {
+    fetch("/api/servers/create_server", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      credentials: 'include',
+      body: JSON.stringify({})
+    })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error("Network response was not ok");
+        }
+        return response.json();
+      })
+      .then(res => {
+        if (res.message === "success") {
+          serverConsole.addServerToUI(res.server, true);
+        } else {
+          alert("Error creating server: " + (res.error || ""));
+        }
+      })
+      .catch(err => {
+        console.error("Error creating server", err);
+        alert("Error creating server");
+      });
+  },
+
+  loadServers: function() {
+    const container = document.getElementById("server-list");
+    if (!container) return;
+    container.innerHTML = "Loading servers...";
+
+    fetch("/api/servers/get_servers", {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      credentials: 'include'
+    })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error("Network response was not ok");
+        }
+        return response.json();
+      })
+      .then(data => {
+        if (data.message === "success") {
+          this.displayServers(data.servers, container);
+        } else {
+          container.innerHTML = "Error loading servers.";
+        }
+      })
+      .catch(() => {
+        container.innerHTML = "Error loading servers.";
+      });
+  },
+
+  displayServers: function(servers, container) {
+    if (!servers.length) {
+      container.innerHTML = "No servers found.";
+      return;
+    }
+
+    container.innerHTML = "";
+
+    servers.forEach(server => {
+      this.addServerToUI(server, false, container);
+    });
+  },
+
+  addServerToUI: function(server, prepend = false, container) {
+    const serverList = container || document.getElementById("server-list");
+    if (!serverList) return;
+
+    const serverItem = document.createElement("div");
+    serverItem.className = "bg-gray-700 rounded mt-2 mb-4";
+    const row = document.createElement("div");
+    row.className = "flex items-center justify-between px-2 py-2 ml-2 cursor-default";
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "font-semibold text-lg";
+    nameSpan.textContent = server.name;
+    nameSpan.setAttribute("data-server-id", server.id);
+    nameSpan.style.cursor = "text";
+
+    nameSpan.addEventListener("dblclick", e => {
+      this.handleServerRename(e, server);
+    });
+
+    const btnContainer = document.createElement("div");
+    const newSceneBtn = document.createElement("button");
+    newSceneBtn.className =
+      "bg-green-600 hover:bg-green-700 text-white font-bold py-1 px-2 rounded shadow-md";
+    newSceneBtn.textContent = "New Scene";
+    newSceneBtn.addEventListener("click", () => {
+      this.createScene(server.id);
+    });
+
+    btnContainer.appendChild(newSceneBtn);
+    row.appendChild(nameSpan);
+    row.appendChild(btnContainer);
+    const scenesDiv = document.createElement("div");
+    scenesDiv.className = "ml-4 mb-2 p-2";
+    scenesDiv.setAttribute("data-server-id", server.id);
+    serverItem.appendChild(row);
+    serverItem.appendChild(scenesDiv);
+
+    if (prepend && serverList.firstChild) {
+      serverList.insertBefore(serverItem, serverList.firstChild);
+    } else {
+      serverList.appendChild(serverItem);
+    }
+
+    this.loadScenes(server.id, scenesDiv);
+  },
+
+  handleServerRename: function(e, server) {
+    const span = e.target;
+    const oldName = server.name;
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = oldName;
+    input.className = "text-gray-800 px-2 py-1 rounded";
+    span.replaceWith(input);
+    input.focus();
+
+    const save = () => {
+      let newName = input.value.trim();
+      if (!newName) newName = oldName;
+
+      span.textContent = newName;
+      input.replaceWith(span);
+
+      if (newName !== oldName) {
+        this.saveServerName(server.id, newName);
+        server.name = newName;
+      }
+    };
+
+    input.addEventListener("blur", save);
+    input.addEventListener("keydown", ev => {
+      if (ev.key === "Enter") {
+        save();
+      }
+    });
+  },
+
+  saveServerName: function(serverId, newName) {
+    fetch("/api/servers/edit_server", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      credentials: 'include',
+      body: JSON.stringify({ id: serverId, name: newName })
+    })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error("Network response was not ok");
+        }
+        return response.json();
+      })
+      .then(res => {
+        if (res.message !== "success") {
+          alert("Error editing server: " + (res.error || ""));
+        }
+      })
+      .catch(err => {
+        console.error("Error editing server", err);
+        alert("Error editing server");
+      });
+  },
+
+  loadScenes: function(serverId, container) {
+    container.innerHTML = "Loading scenes...";
+
+    fetch("/api/scenes/scenes", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      credentials: 'include',
+      body: JSON.stringify({ serverId: serverId })
+    })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error("Network response was not ok");
+        }
+        return response.json();
+      })
+      .then(data => {
+        if (data.message === "success" && data.scenes) {
+          this.displayScenes(data.scenes, container);
+        } else {
+          container.innerHTML = "No scenes found or error loading scenes.";
+        }
+      })
+      .catch(err => {
+        console.error("Error loading scenes for server", serverId, err);
+        container.innerHTML = "Error loading scenes.";
+      });
+  },
+
+displayScenes: function(scenes, container) {
+  // Sort scenes by their 'order' property before displaying
+  scenes.sort((a, b) => a.order - b.order);
+
+  container.innerHTML = "";
+  if (!scenes.length) {
+    container.innerHTML = "<p>No scenes found.</p>";
+    return;
+  }
+
+  // Create a list container (ul)
+  const list = document.createElement("ul");
+  list.className = "space-y-1";
+  list.setAttribute("data-draggable-list", "true");
+
+  // For each scene, create a list item with nameSpan and a "Go" button
+  scenes.forEach(scene => {
+    const li = document.createElement("li");
+    li.className =
+      "px-4 py-2 bg-gray-800 rounded flex justify-between items-center cursor-move";
+    li.setAttribute("data-scene-id", scene._id);
+
+    // Scene name text
+    const nameSpan = document.createElement("span");
+    nameSpan.textContent = scene.name;
+    nameSpan.style.cursor = "text";
+
+    // Double-click to rename the scene
+    nameSpan.addEventListener("dblclick", e => {
+      this.handleSceneRename(e, scene);
+    });
+
+    // Append nameSpan to the list item
+    li.appendChild(nameSpan);
+
+    // "Go" button that explicitly triggers game.scene(scene._id)
+    const goBtn = document.createElement("button");
+    goBtn.className =
+      "bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-2 rounded shadow-md ml-2";
+    goBtn.textContent = "Go";
+
+    // Stop the drag event from interfering and call game.scene
+    goBtn.addEventListener("click", e => {
+      e.stopPropagation();
+      game.scene(scene._id);
+    });
+
+    // Append "Go" button to the list item
+    li.appendChild(goBtn);
+
+    // Add the list item to the list container
+    list.appendChild(li);
+  });
+
+  // Append the list of scenes
+  container.appendChild(list);
+
+  // Make the scenes draggable
+  this.makeScenesDraggable(list);
+},
+
+
+  createScene: function(serverId) {
+    fetch("/api/scenes/create_scene", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      credentials: 'include',
+      body: JSON.stringify({ serverId: serverId })
+    })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error("Network response was not ok");
+        }
+        return response.json();
+      })
+      .then(res => {
+        if (res.message === "success" && res.scene) {
+          const scenesContainer = document.querySelector(
+            `[data-server-id="${serverId}"]`
+          );
+          if (scenesContainer) {
+            this.loadScenes(serverId, scenesContainer);
+          }
+        } else {
+          alert("Error creating scene: " + (res.error || ""));
+        }
+      })
+      .catch(err => {
+        console.error("Error creating scene", err);
+        alert("Error creating scene");
+      });
+  },
+
+  handleSceneRename: function(e, scene) {
+    const span = e.target;
+    const oldName = scene.name;
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = oldName;
+    input.className = "text-gray-800 px-2 py-1 rounded";
+    span.replaceWith(input);
+    input.focus();
+
+    const save = () => {
+      let newName = input.value.trim();
+      if (!newName) newName = oldName;
+      span.textContent = newName;
+      input.replaceWith(span);
+
+      if (newName !== oldName) {
+        this.saveSceneName(scene._id, newName);
+        scene.name = newName;
+      }
+    };
+    input.addEventListener("blur", save);
+    input.addEventListener("keydown", ev => {
+      if (ev.key === "Enter") {
+        save();
+      }
+    });
+  },
+
+  saveSceneName: function(sceneId, newName) {
+    fetch("/api/scenes/edit_scene", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      credentials: 'include',
+      body: JSON.stringify({ sceneId: sceneId, name: newName })
+    })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error("Network response was not ok");
+        }
+        return response.json();
+      })
+      .then(res => {
+        if (res.message !== "success") {
+          alert("Error updating scene");
+        }
+      })
+      .catch(err => {
+        console.error("Error updating scene name", err);
+        alert("Error updating scene");
+      });
+  },
+
+  makeScenesDraggable: function(list) {
+    const items = list.querySelectorAll("li");
+    items.forEach(item => {
+      item.draggable = true;
+
+      item.addEventListener("dragstart", e => {
+        e.dataTransfer.setData(
+          "text/plain",
+          e.target.getAttribute("data-scene-id")
+        );
+        e.dropEffect = "move";
+        e.target.classList.add("opacity-50");
+      });
+
+      item.addEventListener("dragend", e => {
+        e.target.classList.remove("opacity-50");
+      });
+    });
+
+    list.addEventListener("dragover", e => {
+      e.preventDefault();
+      const draggedOverItem = e.target.closest("li");
+      if (!draggedOverItem) return;
+      const bounding = draggedOverItem.getBoundingClientRect();
+      const offset = bounding.y + bounding.height / 2;
+      if (e.clientY - offset > 0) {
+        draggedOverItem.parentNode.insertBefore(
+          document.querySelector(".opacity-50"),
+          draggedOverItem.nextSibling
+        );
+      } else {
+        draggedOverItem.parentNode.insertBefore(
+          document.querySelector(".opacity-50"),
+          draggedOverItem
+        );
+      }
+    });
+
+    list.addEventListener("drop", e => {
+      e.preventDefault();
+      const serverId = list.parentNode.getAttribute("data-server-id");
+      const newOrder = [];
+      list.querySelectorAll("li").forEach((li) => {
+        newOrder.push(li.getAttribute("data-scene-id"));
+      });
+      this.saveNewSceneOrder(serverId, newOrder);
+    });
+  },
+
+  saveNewSceneOrder: function(serverId, orderedSceneIds) {
+    fetch("/api/scenes/reorder_scenes", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      credentials: 'include',
+      body: JSON.stringify({ serverId: serverId, orderedSceneIds: orderedSceneIds })
+    })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error("Network response was not ok");
+        }
+        return response.json();
+      })
+      .then(res => {
+        if (res.message === "success") {
+          console.log("Scene order updated successfully");
+        } else {
+          alert("Error reordering scenes: " + (res.error || ""));
+        }
+      })
+      .catch(err => {
+        console.error("Error reordering scenes", err);
+        alert("Error reordering scenes");
+      });
+  },
+
+  unmount: function() {
+    this.eventListeners.forEach(l => {
+      l.element.removeEventListener(l.event, l.handler);
+    });
+  }
+};
+
+serverConsole.start();
+</script>
+{% endif %}
