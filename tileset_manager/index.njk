@@ -232,15 +232,15 @@
 </style>
 
 <script>
-window[id] = {
-  id: id,
+tileset_manager = {
   selectedTiles: [],
   batchQueue: [],
   scale: 2.0,
   imageCanvas: null,
+  currentImageCanvas: null,
   isDragging: false,
 
-  start: function() {
+  start() {
     this.imageCanvas       = document.getElementById('uploaded_canvas');
     this.browseButton      = document.getElementById('browse_button');
     this.fileInput         = document.getElementById('file_input');
@@ -290,7 +290,6 @@ window[id] = {
       }
     });
 
-
     this.fetchTilesetList(this.tilesetSelect);
     this.initDragDropAndSelection();
     this.zoomSlider.value = this.scale;
@@ -299,7 +298,7 @@ window[id] = {
     this.showRightColumn(false);
   },
 
-  unmount: function() {
+  unmount() {
     this.listeners.forEach(({ element, event, handler }) => {
       element.removeEventListener(event, handler);
     });
@@ -307,13 +306,13 @@ window[id] = {
   },
 
   listeners: [],
-  addListener: function(element, event, handler) {
+  addListener(element, event, handler) {
     if (!element) return;
     element.addEventListener(event, handler);
     this.listeners.push({ element, event, handler });
   },
 
-  showZoomControls: function(show) {
+  showZoomControls(show) {
     const zoomControls = document.getElementById('zoom_controls');
     if (show) {
       zoomControls.classList.remove('hidden');
@@ -321,7 +320,7 @@ window[id] = {
       zoomControls.classList.add('hidden');
     }
   },
-  showRightColumn: function(show) {
+  showRightColumn(show) {
     const rightCol = document.getElementById('right_column');
     const leftCol  = document.getElementById('left_column');
     if (show) {
@@ -334,7 +333,7 @@ window[id] = {
       rightCol.style.overflow = 'hidden';
     }
   },
-  showPreview: function(show) {
+  showPreview(show) {
     const previewWrapper = document.getElementById('preview_wrapper');
     if (show) {
       previewWrapper.classList.remove('hidden');
@@ -342,7 +341,7 @@ window[id] = {
       previewWrapper.classList.add('hidden');
     }
   },
-  showQueuedItems: function(show) {
+  showQueuedItems(show) {
     const qiWrapper = document.getElementById('queued_items_wrapper');
     if (show) {
       qiWrapper.classList.remove('hidden');
@@ -351,7 +350,7 @@ window[id] = {
     }
   },
 
-  fetchTilesetList: function(selectEl) {
+  fetchTilesetList(selectEl) {
     fetch('/api/tileset_manager/list_sheets')
       .then(res => res.json())
       .then(json => {
@@ -372,11 +371,18 @@ window[id] = {
       });
   },
 
-  loadImageFile: function(file) {
+  loadImageFile(file) {
     const reader = new FileReader();
     reader.onload = (event) => {
       const img = new Image();
       img.onload = () => {
+        // Create and store an offscreen canvas for this new image
+        const offscreen = document.createElement('canvas');
+        offscreen.width = img.width;
+        offscreen.height = img.height;
+        offscreen.getContext('2d').drawImage(img, 0, 0);
+        this.currentImageCanvas = offscreen;
+
         this.displayDroppedImage(img);
       };
       img.src = event.target.result;
@@ -384,7 +390,7 @@ window[id] = {
     reader.readAsDataURL(file);
   },
 
-  displayDroppedImage: function(img) {
+  displayDroppedImage(img) {
     const gridCanvas = document.getElementById('gridCanvas');
     const ctxImage   = this.imageCanvas.getContext('2d');
     const ctxGrid    = gridCanvas.getContext('2d');
@@ -414,7 +420,7 @@ window[id] = {
     this.disableQueueFields();
   },
 
-  initDragDropAndSelection: function() {
+  initDragDropAndSelection() {
     const onDragOver = (e) => {
       e.preventDefault();
       this.dropZone.classList.add('dragover');
@@ -437,6 +443,7 @@ window[id] = {
     this.addListener(this.dropZone, 'dragenter', onDragOver);
     this.addListener(this.dropZone, 'dragleave', onDragLeave);
     this.addListener(this.dropZone, 'drop', onDrop);
+
     let ctrlPressed = false;
     this.addListener(document, 'keydown', (e) => {
       if (e.key === 'Control') ctrlPressed = true;
@@ -531,7 +538,7 @@ window[id] = {
     });
   },
 
-  autoScrollIfNearEdge: function(e) {
+  autoScrollIfNearEdge(e) {
     const zoneRect = this.dropZone.getBoundingClientRect();
     const edgeThreshold = 20;
     const distLeft   = e.clientX - zoneRect.left;
@@ -554,7 +561,7 @@ window[id] = {
     }
   },
 
-  setScale: function(newScale) {
+  setScale(newScale) {
     this.scale = newScale;
     this.zoomSlider.value = this.scale;
     this.zoomValue.value  = this.scale.toFixed(1);
@@ -566,7 +573,7 @@ window[id] = {
     });
   },
 
-  getCanvasCoordinates: function(e, canvas) {
+  getCanvasCoordinates(e, canvas) {
     const rect = canvas.getBoundingClientRect();
     return {
       x: (e.clientX - rect.left) / this.scale,
@@ -574,7 +581,7 @@ window[id] = {
     };
   },
 
-  drawSelection: function(ctx, x, y, width, height) {
+  drawSelection(ctx, x, y, width, height) {
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     ctx.beginPath();
     ctx.rect(x, y, width, height);
@@ -585,7 +592,7 @@ window[id] = {
     ctx.stroke();
   },
 
-  drawGrid: function(ctx, canvas) {
+  drawGrid(ctx, canvas) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.strokeStyle = '#000000';
     ctx.lineWidth = 0.5;
@@ -606,18 +613,18 @@ window[id] = {
     ctx.restore();
   },
 
-  enableQueueFields: function() {
+  enableQueueFields() {
     this.tilesetSelect.disabled = false;
     document.getElementById('item_name').disabled = false;
     this.addToQueueBtn.disabled = false;
   },
-  disableQueueFields: function() {
+  disableQueueFields() {
     this.tilesetSelect.disabled = true;
     document.getElementById('item_name').disabled = true;
     this.addToQueueBtn.disabled = true;
   },
 
-  resetPreview: function() {
+  resetPreview() {
     const previewCanvas = document.getElementById('previewCanvas');
     const ctxPreview = previewCanvas.getContext('2d');
     ctxPreview.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
@@ -625,7 +632,7 @@ window[id] = {
     previewCanvas.height = 0;
   },
 
-  updatePreviewCanvas: function() {
+  updatePreviewCanvas() {
     const previewCanvas = document.getElementById('previewCanvas');
     const ctxPreview    = previewCanvas.getContext('2d');
     ctxPreview.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
@@ -684,7 +691,7 @@ window[id] = {
     });
   },
 
-  addItemToQueue: function() {
+  addItemToQueue() {
     const nameInput = document.getElementById('item_name');
     const category  = this.tilesetSelect.value.trim() || 'gen1';
     const name      = nameInput.value.trim();
@@ -698,10 +705,12 @@ window[id] = {
       return;
     }
 
+    // Store the current offscreen canvas so each item is self-contained
     this.batchQueue.push({
       category,
       name,
-      selectedTiles: JSON.parse(JSON.stringify(this.selectedTiles))
+      selectedTiles: JSON.parse(JSON.stringify(this.selectedTiles)),
+      imageCanvas: this.currentImageCanvas
     });
 
     nameInput.value = '';
@@ -715,12 +724,12 @@ window[id] = {
     this.disableQueueFields();
   },
 
-  removeItemFromQueue: function(index) {
+  removeItemFromQueue(index) {
     this.batchQueue.splice(index, 1);
     this.renderQueueList();
   },
 
-  renderQueueList: function() {
+  renderQueueList() {
     const listContainer = document.getElementById('queued_items_list');
     listContainer.innerHTML = '';
 
@@ -758,7 +767,7 @@ window[id] = {
     }
   },
 
-  saveQueuedItems: function() {
+  saveQueuedItems() {
     if (!this.batchQueue.length) {
       alert('No items in queue to save.');
       return;
@@ -772,12 +781,11 @@ window[id] = {
 
     const payload = Object.keys(groupedData).map(tilesetName => {
       const itemsForTileset = groupedData[tilesetName].map(qItem => {
-        const {
-          croppedCanvas,
-          relAcoords,
-          relBcoords
-        } = this.createCroppedCanvas(qItem.selectedTiles);
-
+        // Pass qItem.imageCanvas here to create the cropped data correctly
+        const { croppedCanvas, relAcoords, relBcoords } = this.createCroppedCanvas(
+          qItem.selectedTiles,
+          qItem.imageCanvas
+        );
         const imageData = croppedCanvas.toDataURL('image/png');
         const newObject = {
           n: qItem.name,
@@ -798,24 +806,25 @@ window[id] = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ groupedData: payload })
     })
-      .then(res => res.json())
-      .then(result => {
-        if (result.success) {
-          alert('All grouped items saved successfully!');
-          this.batchQueue = [];
-          this.renderQueueList();
-        } else {
-          console.warn('Error saving grouped items:', result);
-          alert('Error saving grouped items. Check console.');
-        }
-      })
-      .catch(err => {
-        console.error('Error saving grouped items:', err);
+    .then(res => res.json())
+    .then(result => {
+      if (result.success) {
+        alert('All grouped items saved successfully!');
+        this.batchQueue = [];
+        this.renderQueueList();
+      } else {
+        console.warn('Error saving grouped items:', result);
         alert('Error saving grouped items. Check console.');
-      });
+      }
+    })
+    .catch(err => {
+      console.error('Error saving grouped items:', err);
+      alert('Error saving grouped items. Check console.');
+    });
   },
 
-  createCroppedCanvas: function(tiles) {
+  // Now takes the reference to the canvas that actually holds the correct image
+  createCroppedCanvas(tiles, sourceCanvas) {
     const tileSize = 16;
     const minX = Math.min(...tiles.map(t => t.x));
     const minY = Math.min(...tiles.map(t => t.y));
@@ -840,7 +849,7 @@ window[id] = {
       relBcoords.push(relY / tileSize);
 
       ctx.drawImage(
-        this.imageCanvas,
+        sourceCanvas,
         tile.x, tile.y, tileSize, tileSize,
         relX, relY, tileSize, tileSize
       );
@@ -853,5 +862,6 @@ window[id] = {
     };
   }
 };
+
 </script>
 {% endif %}

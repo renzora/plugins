@@ -1,0 +1,355 @@
+{% if auth %}
+<div id='console_window' class='window fixed top-0 left-0 h-screen w-screen bg-[#152032] transition-transform duration-300 ease-in-out -translate-x-full' style="border-radius: 0;" data-drag="false">
+   <div id="tabs" class="console_window_tab_buttons fixed top-0 left-0 h-full bg-[#1c3660] flex flex-col w-[48px] space-y-2 py-4 transition-transform duration-300 ease-in-out border-r-2 border-r-[#151a23]" style="margin-top: -1px;"></div>
+  
+  <div class='relative flex-1 window_body' style="max-height: 99%;">
+    <div class="flex w-full bg-[#152032] h-full">
+      <div class='flex-1'>
+        <div id="console_window_content" class="text-white overflow-y-auto p-2 h-full"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+#console_resizeHandle:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+#console_window.slid-off {
+  transform: translateX(100%);
+}
+
+#console_slideTabIcon {
+  transition: transform 0.3s ease;
+}
+</style>
+
+<script>
+console_window = {
+    isOpen: false,
+    currentTabIndex: 0,
+    eventListeners: [],
+    tab_name: null,
+    allowToggle: true,
+    iconPositions: {
+        globe: 0,
+        inventory: 1,
+        cloud: 2,
+        lightbulb: 3,
+        music: 4,
+        script: 5,
+        key: 6,
+        info: 7,
+        settings: 10,
+        full_screen: 11
+    },
+
+start() {
+    this.load_tab_buttons();
+    this.toggleConsoleWindow(false);
+    this.bindGamepadButtons();
+    this.initResizeAndSlide();
+
+    game.canvas.addEventListener('click', function(event) {
+        if (this.isOpen) {
+            this.toggleConsoleWindow();
+        }
+    });
+},
+
+    unmount() {
+        this.eventListeners.forEach(({ element, event, handler }) => {
+            element.removeEventListener(event, handler);
+        });
+        this.eventListeners = [];
+        this.unmountCurrentTab();
+        assets.unload('console_window_icons');
+        console.log("All event listeners have been removed.");
+    },
+
+    bindGamepadButtons() {
+        this.bButton = gamepad.throttle(this.bButton.bind(this), 200);
+        this.upButton = gamepad.throttle(this.upButton.bind(this), 200);
+        this.downButton = gamepad.throttle(this.downButton.bind(this), 200);
+    },
+
+    setupTabIcons() {
+        const buttons = document.querySelectorAll('#console_window .console_tab');
+        buttons.forEach(button => {
+            const iconDiv = button.querySelector('div');
+            if (!iconDiv) return;
+            const iconName = iconDiv.classList[0];
+            if (!iconName) return;
+            this.setTabIcon(button, iconDiv, iconName);
+        });
+    },
+
+    setTabIcon(button, iconDiv, iconName) {
+        const iconSprite = assets.use('console_window_icons');
+        if (!iconSprite) return;
+        const iconIndex = this.iconPositions[iconName];
+        if (typeof iconIndex === 'undefined') {
+            console.warn(`No icon mapping found for: ${iconName}`);
+            return;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = 32;
+        canvas.height = 32;
+        const ctx = canvas.getContext('2d');
+        const offsetX = iconIndex * 32;
+        ctx.drawImage(iconSprite, offsetX, 0, 32, 32, 0, 0, 32, 32);
+        button.removeChild(iconDiv);
+        button.appendChild(canvas);
+    },
+
+initResizeAndSlide() {
+  const consoleWindow = document.getElementById('console_window');
+  const resizeHandle = document.createElement('div');
+  resizeHandle.id = 'console_resizeHandle';
+  resizeHandle.className = 'resize-handle';
+  resizeHandle.style.cssText = `
+    position: absolute;
+    right: -5px;
+    top: 0;
+    bottom: 0;
+    width: 10px;
+    cursor: ew-resize;
+    z-index: 10;
+  `;
+  consoleWindow.appendChild(resizeHandle);
+
+  const slideTab = document.createElement('div');
+  slideTab.id = 'console_slideTab';
+  slideTab.className = 'absolute -right-4 top-2 w-4 h-6 bg-[#1c3660] text-white flex items-center justify-center cursor-pointer rounded-r shadow-lg z-20';
+  slideTab.innerHTML = `
+    <svg id="console_slideTabIcon" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+    </svg>
+  `;
+  consoleWindow.appendChild(slideTab);
+
+  let isResizing = false;
+  let initialWidth = consoleWindow.offsetWidth;
+  let initialX = 0;
+
+  resizeHandle.addEventListener('mousedown', (e) => {
+    isResizing = true;
+    initialWidth = consoleWindow.offsetWidth;
+    initialX = e.clientX;
+    document.body.style.cursor = 'ew-resize';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+    const deltaX = e.clientX - initialX;
+    const newWidth = initialWidth + deltaX;
+    if (newWidth >= 200 && newWidth <= 600) {
+      consoleWindow.style.width = `${newWidth}px`;
+      game.resizeCanvas();
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isResizing) {
+      isResizing = false;
+      document.body.style.cursor = '';
+    }
+  });
+
+  slideTab.addEventListener('click', () => this.toggleConsoleSlide());
+},
+
+toggleConsoleSlide() {
+  const consoleWindow = document.getElementById('console_window');
+  const slideTabIcon = document.getElementById('console_slideTabIcon');
+  
+  this.panelSlideVisible = !this.panelSlideVisible;
+  
+  if (this.panelSlideVisible) {
+    consoleWindow.style.transform = 'translateX(0)';
+    slideTabIcon.style.transform = 'rotate(0deg)';
+  } else {
+    consoleWindow.style.transform = 'translateX(-100%)';
+    slideTabIcon.style.transform = 'rotate(180deg)';
+  }
+  
+  game.resizeCanvas();
+},
+
+    bButton() {
+        console.log("b button pressed from console_window");
+        this.toggleConsoleWindow();
+    },
+
+    upButton() {
+        console.log("up button pressed from console_window");
+        this.navigateTabs('up');
+    },
+
+    downButton() {
+        console.log("down button pressed from console_window");
+        this.navigateTabs('down');
+    },
+
+    load_tab_buttons(id) {
+        assets.preload([{ name: 'console_window_icons', path: 'plugins/editor/console_window/icons.png' }]);
+        console.log(id);
+
+        fetch(`/api/ajax/plugins/editor/console_window/tabs.njk`, { method: 'GET' })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.text();
+            })
+            .then(data => {
+                ui.html('.console_window_tab_buttons', data, 'replace');
+                console_window.setupTabListeners();
+                console_window.setupTabIcons();
+            })
+            .catch(err => {
+                console.error("Failed to load content for tab:", id, err);
+                const contentDiv = document.getElementById('console_window_content');
+                if (contentDiv) {
+                    contentDiv.innerHTML = `<div class="error">Failed to load content. Please try again later.</div>`;
+                }
+            });
+    },
+
+    toggleConsoleWindow(toggle = true, tabName = null) {
+        const consoleElement = document.getElementById('console_window');
+        const tabsElement = document.getElementById('tabs');
+
+        if (toggle) {
+            if (!this.allowToggle && this.isOpen) {
+                console.log("Console window is already open and cannot be closed.");
+                return;
+            }
+            this.isOpen = !this.isOpen;
+        }
+
+        if (this.isOpen) {
+            this.showConsoleWindow(consoleElement, tabsElement);
+            this.activateCurrentTab();
+        } else {
+            this.hideConsoleWindow(consoleElement, tabsElement);
+        }
+
+        game.resizeCanvas();
+    },
+
+    showConsoleWindow(consoleElement, tabsElement) {
+        console.log(consoleElement);
+        consoleElement.classList.remove('-translate-x-full');
+        consoleElement.classList.add('translate-x-0');
+        consoleElement.style.marginLeft = '46px';
+        tabsElement.style.marginLeft = '-48px';
+        plugin.front('console_window');
+    },
+
+    hideConsoleWindow(consoleElement, tabsElement) {
+        consoleElement.classList.remove('translate-x-0');
+        consoleElement.classList.add('-translate-x-full');
+        consoleElement.style.marginLeft = '0px';
+        tabsElement.style.marginLeft = '407px';
+        plugin.front('ui_inventory_window');
+    },
+
+    activateCurrentTab() {
+        const tabs = document.querySelectorAll('#console_window .console_tab');
+        tabs.forEach(t => t.classList.remove('bg-[#fff]', 'text-white'));
+        tabs[this.currentTabIndex].classList.add('bg-[#fff]', 'text-white');
+        this.loadTabContent(tabs[this.currentTabIndex].getAttribute('data-tab'));
+    },
+
+    setupTabListeners() {
+        const tabs = document.querySelectorAll('#console_window .console_tab');
+        tabs.forEach((tab, index) => {
+            const listener = () => this.handleTabClick(tab, index);
+            tab.addEventListener('click', listener);
+            this.eventListeners.push({ element: tab, event: 'click', handler: listener });
+        });
+    },
+
+    handleTabClick(tab, index) {
+        const newTabName = tab.getAttribute('data-tab');
+        if (this.tab_name && this.tab_name !== newTabName) {
+            ui.unmount(`ui_console_${this.tab_name}`);
+            console.log(`Unmounting ui_console_${this.tab_name}`);
+        }
+        this.currentTabIndex = index;
+        this.tab_name = newTabName;
+        this.clearActiveTabs();
+        tab.classList.add('bg-[#fff]', 'text-white');
+        if (!this.isOpen) {
+            this.toggleConsoleWindow();
+        } else {
+            this.loadTabContent(newTabName);
+        }
+    },
+
+    loadTabContent(target) {
+        if (this.tab_name) {
+            ui.unmount('ui_console_' + this.tab_name);
+            console.log(`Unmounting ui_console_${this.tab_name}`);
+        }
+        this.tab_name = target;
+        const contentDiv = document.getElementById('console_window_content');
+        if (contentDiv) {
+            contentDiv.innerHTML = '';
+            fetch(`/api/ajax/plugins/editor/console_window/tabs/${target}/index.njk`, { method: 'GET' })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.text();
+                })
+                .then(data => {
+                    ui.html(contentDiv, data, 'replace');
+                    console.log(target, "loaded successfully");
+                })
+                .catch(err => {
+                    console.error("Failed to load content for tab:", target, err);
+                    contentDiv.innerHTML = `<div class="error">Failed to load content. Please try again later.</div>`;
+                });
+        }
+    },
+
+    unmountCurrentTab() {
+        ui.unmount('ui_console_tab_window');
+        console.log("unmounting ui_console_tab_window");
+        const contentDiv = document.getElementById('console_window_content');
+        if (contentDiv) {
+            contentDiv.innerHTML = '';
+        }
+    },
+
+    clearActiveTabs() {
+        const tabs = document.querySelectorAll('#console_window .console_tab');
+        tabs.forEach(t => t.classList.remove('bg-[#fff]', 'text-white'));
+    },
+
+    navigateTabs(direction) {
+        const tabs = document.querySelectorAll('#console_window .console_tab');
+        let newIndex = this.currentTabIndex;
+        if (direction === 'up') {
+            newIndex = (this.currentTabIndex - 1 + tabs.length) % tabs.length;
+        } else if (direction === 'down') {
+            newIndex = (this.currentTabIndex + 1) % tabs.length;
+        }
+        if (this.isOpen) {
+            this.clearActiveTabs();
+            tabs[newIndex].classList.add('bg-[#fff]', 'text-white');
+            this.unmountCurrentTab();
+            this.loadTabContent(tabs[newIndex].getAttribute('data-tab'));
+            this.currentTabIndex = newIndex;
+        }
+    },
+
+    isMenuActive() {
+        return this.isOpen;
+    }
+};
+</script>
+{% endif %}

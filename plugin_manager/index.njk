@@ -25,21 +25,20 @@
 </div>
 
 <script>
-window[id] = {
-  id: id,
+plugin_manager = {
   plugins: [],
   filteredPlugins: [],
 
-  start: function() {
+  start() {
     console.log(`Plugin started: ${this.id}`);
     this.fetchAvailablePlugins();
   },
 
-  unmount: function() {
+  unmount() {
     console.log(`Plugin unmounted: ${this.id}`);
   },
 
-  fetchAvailablePlugins: function() {
+  fetchAvailablePlugins() {
     fetch('/api/plugins/list')
       .then(response => response.json())
       .then(data => {
@@ -50,7 +49,7 @@ window[id] = {
       .catch(err => console.error('Error fetching plugin list:', err));
   },
 
-  filterPlugins: function(searchTerm) {
+  filterPlugins(searchTerm) {
     const lowerSearch = searchTerm.toLowerCase();
     this.filteredPlugins = this.plugins.filter(plugin =>
       plugin.name.toLowerCase().includes(lowerSearch)
@@ -58,7 +57,7 @@ window[id] = {
     this.renderPluginList(this.filteredPlugins);
   },
 
-  renderPluginList: function(pluginArray) {
+  renderPluginList(pluginArray) {
     const pluginListEl = document.getElementById('pluginList');
     pluginListEl.innerHTML = '';
 
@@ -86,7 +85,7 @@ window[id] = {
     });
   },
 
-  downloadPlugin: function(pluginName) {
+  downloadPlugin(pluginName) {
     fetch(`/api/plugins/download/${encodeURIComponent(pluginName)}`)
       .then(response => response.json())
       .then(result => {
@@ -99,7 +98,7 @@ window[id] = {
       });
   },
 
-  uninstallPlugin: function(pluginName) {
+  uninstallPlugin(pluginName) {
     fetch(`/api/plugins/uninstall/${encodeURIComponent(pluginName)}`, { method: 'DELETE' })
       .then(response => response.json())
       .then(result => {
