@@ -42,7 +42,6 @@ inventory = {
             this.initializeDragAndDrop();
             this.initializeQuickItems();
             this.displayInventoryItems();
-            this.setupGamepadEvents();
 
             if (this.itemsData && this.itemsImg) {
                 this.displayInventoryItems();
@@ -58,33 +57,18 @@ inventory = {
         });
     },
 
-    setupGamepadEvents: function() {
-        window.addEventListener('gamepadConnected', () => {
-            this.switchToGamepadMode();
-        });
-        window.addEventListener('gamepadDisconnected', () => {
-            this.switchToKeyboardMode();
-        });
-
-        gamepad.throttle((e) => this.l1Button(e), this.throttleDuration);
-        gamepad.throttle((e) => this.r1Button(e), this.throttleDuration);
-        gamepad.throttle((e) => this.bButton(e), this.throttleDuration);
-    },
-
     switchToGamepadMode: function() {
         console.log("Switched to gamepad mode.");
         this.selectItem(0);
     },
 
-    throttle: function(callback) {
-        const currentTime = Date.now();
-        if (currentTime - this.lastButtonPress < this.throttleDuration) {
-            return false;
-        }
+throttle: function(callback) {
+    const currentTime = Date.now();
+    if (currentTime - this.lastButtonPress >= this.throttleDuration) {
         this.lastButtonPress = currentTime;
         callback();
-        return true;
-    },
+    }
+},
 
     throttleX: function(callback) {
         const currentTime = Date.now();
@@ -96,34 +80,34 @@ inventory = {
         return true;
     },
 
-l1Button: function(e) {
-    this.throttle(() => {
-        const items = document.querySelectorAll('.ui_quick_item');
-        if (items.length > 0) {
-            this.currentItemIndex = (this.currentItemIndex - 1 + items.length) % items.length;
-            this.selectItem(this.currentItemIndex);
-            audio.playAudio("menuDrop", assets.use('menuDrop'), 'sfx', false);
-        }
-    });
-},
+    onL1() {
+        this.throttle(() => {
+            const items = document.querySelectorAll('.ui_quick_item');
+            if (items.length > 0) {
+                this.currentItemIndex = (this.currentItemIndex - 1 + items.length) % items.length;
+                this.selectItem(this.currentItemIndex);
+                plugin.audio.playAudio("menuDrop", assets.use('menuDrop'), 'sfx', false);
+            }
+        });
+    },
 
-r1Button: function(e) {
-    this.throttle(() => {
-        const items = document.querySelectorAll('.ui_quick_item');
-        if (items.length > 0) {
-            this.currentItemIndex = (this.currentItemIndex + 1) % items.length;
-            this.selectItem(this.currentItemIndex);
-            audio.playAudio("menuDrop", assets.use('menuDrop'), 'sfx', false);
-        }
-    });
-},
+    onR1() {
+        this.throttle(() => {
+            const items = document.querySelectorAll('.ui_quick_item');
+            if (items.length > 0) {
+                this.currentItemIndex = (this.currentItemIndex + 1) % items.length;
+                this.selectItem(this.currentItemIndex);
+                plugin.audio.playAudio("menuDrop", assets.use('menuDrop'), 'sfx', false);
+            }
+        });
+    },
 
-    aButton: function(e) {
+    onA() {
         this.throttleX(() => {
             if (!this.isItemSelected) {
                 const item = this.getFilteredInventory()[this.currentItemIndex];
                 if (!item) {
-                    audio.playAudio("error", assets.use('error'), 'sfx', false);
+                    plugin.audio.playAudio("error", assets.use('error'), 'sfx', false);
                     return;
                 }
                 this.heldItem = { ...item };
@@ -131,7 +115,7 @@ r1Button: function(e) {
                 this.currentItemIndexHeld = this.currentItemIndex;
                 this.clearHighlights();
                 this.highlightOriginalSlot();
-                audio.playAudio("menuDrop", assets.use('menuDrop'), 'sfx', false);
+                plugin.audio.playAudio("menuDrop", assets.use('menuDrop'), 'sfx', false);
             } else {
                 if (this.currentItemIndex === this.currentItemIndexHeld) {
                     this.isItemSelected = false;
@@ -139,7 +123,7 @@ r1Button: function(e) {
                     this.currentItemIndexHeld = null;
                     this.clearHighlights();
                     this.selectItem(this.currentItemIndex);
-                    audio.playAudio("menuDrop", assets.use('menuDrop'), 'sfx', false);
+                    plugin.audio.playAudio("menuDrop", assets.use('menuDrop'), 'sfx', false);
                 } else {
                     const targetItem = this.getFilteredInventory()[this.currentItemIndex];
                     if (targetItem) {
@@ -156,13 +140,13 @@ r1Button: function(e) {
                     this.renderInventoryItems();
                     this.displayInventoryItems();
                     this.selectItem(this.currentItemIndex);
-                    audio.playAudio("menuDrop", assets.use('menuDrop'), 'sfx', false);
+                    plugin.audio.playAudio("menuDrop", assets.use('menuDrop'), 'sfx', false);
                 }
             }
         });
     },
 
-    bButton: function(e) {
+    onB() {
         this.throttle(() => {
             if (this.isItemSelected) {
                 this.inventory[this.currentItemIndexHeld] = this.heldItem;
@@ -172,10 +156,10 @@ r1Button: function(e) {
                 this.renderInventoryItems();
                 this.displayInventoryItems();
                 this.selectItem(this.currentItemIndex);
-                audio.playAudio("menuDrop", assets.use('menuDrop'), 'sfx', false);
+                plugin.audio.playAudio("menuDrop", assets.use('menuDrop'), 'sfx', false);
             } else {
                 console.log('B button pressed, no swap mode active.');
-                audio.playAudio("menuDrop", assets.use('menuDrop'), 'sfx', false);
+                plugin.audio.playAudio("menuDrop", assets.use('menuDrop'), 'sfx', false);
             }
         });
     },
@@ -606,7 +590,7 @@ renderInventoryItems: function() {
         if (target && target.classList.contains('ui_quick_item')) {
             target.classList.add('border-2', 'border-dashed', 'border-yellow-500', 'animate-pulse');
             if (!this.hasPlayedDragOverSound || this.lastHoveredSlot !== target) {
-                audio.playAudio("menuDrop", assets.use('menuDrop'), 'sfx', false);
+                plugin.audio.playAudio("menuDrop", assets.use('menuDrop'), 'sfx', false);
                 this.hasPlayedDragOverSound = true;
                 this.lastHoveredSlot = target;
             }
@@ -648,7 +632,7 @@ renderInventoryItems: function() {
         this.initializeDragAndDrop();
         this.initializeQuickItems();
         this.selectItem(this.currentItemIndex);
-        audio.playAudio("slotDrop", assets.use('slotDrop'), 'sfx', false);
+        plugin.audio.playAudio("slotDrop", assets.use('slotDrop'), 'sfx', false);
         return false;
     },
 
