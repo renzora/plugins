@@ -58,18 +58,13 @@ lighting = {
     }
   },
 
-  start() {
-    if (game.mainSprite) {
-      this.addLight(game.mainSprite.id + '_light', game.mainSprite.x + 8, game.mainSprite.y + 8, 30, { r: 255, g: 255, b: 255 }, 0.3, 'playerLight', true, 0, 0);
-    }
-  },
-
   unmount() {
   },
 
   onRender() {
     this.updateDayNightCycle();
     this.updateLights();
+    this.renderLights();
 
     if (!this.nightFilterActive) return;
     if (this.timeBasedUpdatesEnabled && this.lightIntensityMultiplier === 0) {
@@ -79,6 +74,66 @@ lighting = {
     const { maskCanvas, maskCtx } = this.createBaseNightFilter();
     this.renderLightsOnFilter(maskCtx);
     this.renderFinalOverlay(game.ctx, maskCanvas);
+  },
+
+  renderLights() {
+    if (!game.roomData || !game.roomData.items) return;
+
+    game.roomData.items.forEach(roomItem => {
+      if (!roomItem || !roomItem.layer_id) return;
+
+      const tileData = game.objectData[roomItem.id];
+      if (!tileData || !tileData[0]) return;
+
+      if (roomItem.visible === false && tileData[0].l && Array.isArray(tileData[0].l)) {
+        tileData[0].l.forEach((lightConfig, lightIndex) => {
+          const lId = `${roomItem.layer_id}_light_${lightIndex}`;
+          this.lights = this.lights.filter(l => l.id !== lId);
+        });
+        return;
+      }
+
+      if (tileData[0].l && Array.isArray(tileData[0].l)) {
+        tileData[0].l.forEach((lightConfig, lightIndex) => {
+          const offsetX = lightConfig.x || 0;
+          const offsetY = lightConfig.y || 0;
+          const baseX = Math.min(...roomItem.x) * 16;
+          const baseY = Math.min(...roomItem.y) * 16;
+          const px = baseX + offsetX;
+          const py = baseY + offsetY;
+          const lId = `${roomItem.layer_id}_light_${lightIndex}`;
+          const dh = plugin.time.hours + plugin.time.minutes / 60;
+          const isNight = (dh >= 22 || dh < 7);
+          const inViewport = (
+            px + 200 >= game.viewportXStart * 16 &&
+            px - 200 < game.viewportXEnd * 16 &&
+            py + 200 >= game.viewportYStart * 16 &&
+            py - 200 < game.viewportYEnd * 16
+          );
+
+          if (inViewport && isNight) {
+            let existingLight = this.lights.find(l => l.id === lId);
+            if (!existingLight) {
+              const col = tileData[0].lc || { r: 255, g: 255, b: 255 };
+              const intens = tileData[0].li || 1;
+              const rad = tileData[0].lr || 200;
+              const flickerSpeed = tileData[0].lfs || 0.03;
+              const flickerAmount = tileData[0].lfa || 0.04;
+              const lt = tileData[0].lt || 'lamp';
+              const shp = lightConfig.shape || null;
+              
+              this.addLight(lId, px, py, rad, col, intens, lt, true,
+                flickerSpeed, flickerAmount, shp);
+            } else {
+              existingLight.x = px;
+              existingLight.y = py;
+            }
+          } else {
+            this.lights = this.lights.filter(l => l.id !== lId);
+          }
+        });
+      }
+    });
   },
 
   updateLights() {
