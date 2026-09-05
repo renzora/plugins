@@ -1,0 +1,41 @@
+# Native plugin: an ordinary Bevy plugin shipped as source and compiled against
+# the staged SDK on the machine that installs it.
+#
+# ⚠ Do NOT run `cargo build` here. `plugins/` is outside the engine workspace, so
+# cargo would resolve a SECOND Bevy from crates.io and the plugin that came out
+# would have different `TypeId`s from the engine — it would load, run, and
+# corrupt the World. The path dependency below exists so rust-analyzer can
+# resolve `renzora::` while you author; the real build is the editor's, against
+# `sdk/`.
+[workspace]
+
+[package]
+name = "system_monitor"
+version = "0.1.0"
+edition = "2021"
+description = "CPU, RAM, GPU and frame-time readouts in the editor's status bar."
+
+[lib]
+crate-type = ["dylib"]
+
+[dependencies]
+bevy = "0.19"
+# `editor` for `RenzoraShellExt::register_shell_status_item`, which is the whole
+# surface this plugin touches, plus `stat_refresh_throttle`. No `renzora_ember`:
+# this writes status-bar segments rather than panel content, so it never names a
+# widget.
+renzora = { path = "../../crates/renzora", features = ["editor"] }
+
+# Host hardware probing: `sysinfo` for CPU model and RAM, `nvml-wrapper` for the
+# NVIDIA counters. Both are plain Rust with no Bevy in their graph, so the
+# native-plugin dep resolver builds them with cargo into private rlibs and hands
+# them to this plugin's `rustc` as extra `--extern`s.
+#
+# NOT target-gated, though the source still `#[cfg]`s their use. That resolver
+# reads `[dependencies]` and nothing else (see `renzora_native_build::deps`), so
+# a `[target.'cfg(…)'.dependencies]` block is silently skipped and the plugin
+# fails to build with `unresolved import sysinfo`. Nothing is lost by flattening
+# it: a native plugin links the engine's own dylibs and wasm has none, so the
+# only target this is ever compiled for is the host.
+sysinfo = "0.35"
+nvml-wrapper = "0.10"

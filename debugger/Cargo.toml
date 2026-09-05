@@ -1,0 +1,38 @@
+# Native plugin: an ordinary Bevy plugin shipped as source and compiled against
+# the staged SDK on the machine that installs it.
+#
+# ⚠ Do NOT run `cargo build` here. `plugins/` is outside the engine workspace, so
+# cargo would resolve a SECOND Bevy from crates.io and the plugin that came out
+# would have different `TypeId`s from the engine — it would load, run, and
+# corrupt the World. The path dependencies below exist so rust-analyzer can
+# resolve `renzora::` and `renzora_ember::` while you author; the real build is
+# the editor's, against `sdk/`.
+[workspace]
+
+[package]
+name = "debugger"
+version = "0.1.0"
+edition = "2021"
+description = "The editor's debug panels and the Debug workspace that arranges them."
+
+[lib]
+crate-type = ["dylib"]
+
+[dependencies]
+bevy = "0.19"
+# `diagnostics` is what carries the material and script perf tables plus the two
+# count resources their owners publish. Those types live in the contract crate
+# precisely so this plugin can name them: a native plugin links `bevy`,
+# `renzora` and `renzora_ember` and nothing else, so a panel reading
+# `renzora_shader::material::perf::MaterialPerfStats` could never have been one.
+renzora = { path = "../../crates/renzora", features = ["editor", "diagnostics"] }
+# The panel and workspace registration APIs: `register_panel_content` for the
+# thirteen panels, `register_workspace` for the layout arranging them. Has to be
+# the SHARED image, which is the whole reason a native plugin is bound to the
+# engine build it was compiled against.
+renzora_ember = { path = "../../../../crates/renzora_ember" }
+# Resident-set and virtual-size readings for the Memory Profiler panel. Plain
+# Rust with no Bevy in its graph, so the native-plugin dep resolver builds it
+# with cargo into a private rlib and hands it to this plugin's `rustc` as an
+# extra `--extern`.
+memory-stats = "1"
