@@ -1,0 +1,10 @@
+asset_id = "2f0b1533-0eea-48f4-b7f9-2b579c416ad9"
+name = "Letterbox effect"
+slug = "letterbox-effect-2f0b1533"
+version = "1.0.0"
+category = "plugins"
+crate_name = "letterbox"
+engine_release = ""
+source_url = ""
+
+[dylib_urls]

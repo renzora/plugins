@@ -1,0 +1,10 @@
+asset_id = "7678a886-5364-487b-a3da-7f4b3a8d4195"
+name = "Procedural Tree"
+slug = "procedural-tree-7678a886"
+version = "1.0.0"
+category = "plugins"
+crate_name = "procedural_tree"
+engine_release = ""
+source_url = ""
+
+[dylib_urls]

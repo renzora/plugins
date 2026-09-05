@@ -1,0 +1,10 @@
+asset_id = "d311e923-d8b9-40bd-8e16-c606f5707479"
+name = "Night Stars"
+slug = "night-stars-d311e923"
+version = "1.0.0"
+category = "plugins"
+crate_name = "night_stars"
+engine_release = ""
+source_url = ""
+
+[dylib_urls]

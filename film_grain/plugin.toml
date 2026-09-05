@@ -1,0 +1,10 @@
+asset_id = "a7785245-597d-46a4-b82c-7830d515b51f"
+name = "Film grain FX"
+slug = "film-grain-fx-a7785245"
+version = "1.0.0"
+category = "plugins"
+crate_name = "film_grain"
+engine_release = ""
+source_url = ""
+
+[dylib_urls]

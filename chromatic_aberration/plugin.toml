@@ -1,0 +1,10 @@
+asset_id = "cb74de9c-dc16-4eed-813b-a494a0db5b6e"
+name = "Chromatic Aberration"
+slug = "chromatic-aberration-cb74de9c"
+version = "1.0.0"
+category = "plugins"
+crate_name = "chromatic_aberration"
+engine_release = ""
+source_url = ""
+
+[dylib_urls]

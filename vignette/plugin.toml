@@ -1,0 +1,10 @@
+asset_id = "160257c9-3349-4a04-9510-d89949ee906d"
+name = "Vignette"
+slug = "vignette-160257c9"
+version = "1.0.0"
+category = "plugins"
+crate_name = "vignette"
+engine_release = ""
+source_url = ""
+
+[dylib_urls]

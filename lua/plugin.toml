@@ -1,0 +1,10 @@
+asset_id = "9b26b904-b8de-4204-9bcd-4c80286a848b"
+name = "Lua Scripting"
+slug = "lua-scripting-9b26b904"
+version = "1.0.0"
+category = "plugins"
+crate_name = "lua"
+engine_release = ""
+source_url = ""
+
+[dylib_urls]

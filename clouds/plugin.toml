@@ -1,0 +1,10 @@
+asset_id = "58fa79b5-00b6-4134-8501-b30045e515c9"
+name = "Clouds Plugin"
+slug = "clouds-58fa79b5"
+version = "1.0.0"
+category = "plugins"
+crate_name = "clouds"
+engine_release = ""
+source_url = ""
+
+[dylib_urls]

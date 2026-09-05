@@ -1,0 +1,10 @@
+asset_id = "553ca565-1cf6-48fe-8a48-877770cf9308"
+name = "Sepia effect"
+slug = "sepia-effect-553ca565"
+version = "1.0.0"
+category = "plugins"
+crate_name = "sepia"
+engine_release = ""
+source_url = ""
+
+[dylib_urls]

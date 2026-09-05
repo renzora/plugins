@@ -1,0 +1,10 @@
+asset_id = "42c9a71e-e15e-4a66-9d62-b4228b095cf8"
+name = "Text3D Plugin"
+slug = "text3d-plugin-42c9a71e"
+version = "1.0.0"
+category = "plugins"
+crate_name = "text3d"
+engine_release = ""
+source_url = ""
+
+[dylib_urls]

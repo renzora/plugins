@@ -1,0 +1,10 @@
+asset_id = "a2109fa5-aa5a-427c-8e23-cb014165b90b"
+name = "Gamepad"
+slug = "gamepad-a2109fa5"
+version = "1.0.0"
+category = "plugins"
+crate_name = "gamepad"
+engine_release = ""
+source_url = ""
+
+[dylib_urls]

@@ -1,0 +1,10 @@
+asset_id = "93de3c0e-7c31-4eba-87aa-d660ac1bc69a"
+name = "CRT Fx"
+slug = "crt-fx-93de3c0e"
+version = "1.0.0"
+category = "plugins"
+crate_name = "crt"
+engine_release = ""
+source_url = ""
+
+[dylib_urls]
