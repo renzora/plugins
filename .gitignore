@@ -1,0 +1,9 @@
+# Build artefacts. A plugin here ships as SOURCE and is compiled on the machine
+# that installs it, so neither of these belongs in the repository.
+#
+# `build/` is where the engine drops the compiled library, its `stamp.txt` and
+# the `.reload/` shadow copies it swaps between on a hot reload. `target/` is
+# cargo's. Across the plugins in this repository they came to 1.7 GB against
+# 2.2 MB of actual source.
+build/
+target/
