@@ -1,61 +1,30 @@
-#![no_std]
-//! Dithering post-process effect.
+//! Ordered (Bayer) dithering post-process effect.
 //!
-//! Converted from the Bevy-linking `crates/renzora_dithering`. Links no Bevy, so it
-//! rebuilds in about a second and hot-reloads, shader included. See `plugins/crt`
-//! for the conversion notes.
+//! The threshold matrix is generated in the shader, so the effect ships no
+//! texture and the pattern stays pixel-exact at any render resolution.
 
-extern crate alloc;
+use bevy::prelude::*;
+use renzora::{post_process, AppEditorExt};
 
-// Supplies the global allocator and panic handler that `std` would have. Expands
-// to nothing under `std` or `static_link`, so this is safe whichever way the
-// plugin ends up linked.
-renzora_plugin::no_std_runtime!();
-
-use renzora_plugin::prelude::*;
-
-const WGSL: &str = include_str!("dithering.wgsl");
-
-#[derive(Component)]
-#[component(name = "Dithering")]
-#[repr(C)]
+/// The macro appends `enabled` and pads the uniform out to two `vec4`s, so
+/// `dithering.wgsl`'s `DitheringSettings` must match field for field.
+#[post_process(shader = "dithering.wgsl", name = "Dithering", icon = "dots-nine")]
 pub struct Dithering {
-    #[field(min = 2.0, max = 32.0, speed = 0.5)]
+    #[field(min = 2.0, max = 32.0, speed = 0.5, default = 8.0)]
     pub color_depth: f32,
-    #[field(min = 0.0, max = 1.0, speed = 0.01)]
+    #[field(min = 0.0, max = 1.0, speed = 0.01, default = 1.0)]
     pub intensity: f32,
 }
 
-impl Default for Dithering {
-    fn default() -> Self {
-        Self {
-            color_depth: 8.0,
-            intensity: 1.0,
-        }
-    }
-}
-
+#[derive(Default)]
 pub struct DitheringPlugin;
 
 impl Plugin for DitheringPlugin {
     fn build(&self, app: &mut App) {
-        app.add_post_process::<Dithering>("dithering", WGSL, RenderPhase::LdrPost, 0.0);
+        bevy::asset::embedded_asset!(app, "dithering.wgsl");
+        app.add_plugins(renzora::postprocess::PostProcessPlugin::<Dithering>::default());
+        app.register_inspectable::<Dithering>();
     }
 }
 
-renzora_plugin::add!(DitheringPlugin);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The Rust struct and the shader must agree byte for byte. Nothing enforces
-    /// it at run time — the host copies these bytes straight into the uniform
-    /// buffer and the shader reads them back by offset — so a mismatch is not an
-    /// error, it is a wrong picture: every field from the mismatch onward reads
-    /// its neighbour's value.
-    #[test]
-    fn the_uniform_matches_the_shader() {
-        renzora_plugin::uniform_check::assert_uniform_matches::<Dithering>(WGSL, "DitheringSettings");
-    }
-}
+renzora::plugin!(DitheringPlugin, Runtime);

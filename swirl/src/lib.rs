@@ -1,67 +1,35 @@
-#![no_std]
-//! Swirl post-process effect.
+//! Swirl distortion post-process effect.
 //!
-//! Converted from the Bevy-linking `crates/renzora_swirl`. Links no Bevy, so it
-//! rebuilds in about a second and hot-reloads, shader included. See `plugins/crt`
-//! for the conversion notes.
+//! The centre stays two skipped floats fixed at the middle of the screen: the
+//! shader reads them at those exact offsets, and a `Vec2` field would move
+//! everything after it in the uniform.
 
-extern crate alloc;
+use bevy::prelude::*;
+use renzora::{post_process, AppEditorExt};
 
-// Supplies the global allocator and panic handler that `std` would have. Expands
-// to nothing under `std` or `static_link`, so this is safe whichever way the
-// plugin ends up linked.
-renzora_plugin::no_std_runtime!();
-
-use renzora_plugin::prelude::*;
-
-const WGSL: &str = include_str!("swirl.wgsl");
-
-#[derive(Component)]
-#[component(name = "Swirl")]
-#[repr(C)]
+/// The macro appends `enabled` and pads the uniform out to two `vec4`s, so
+/// `swirl.wgsl`'s `SwirlSettings` must match field for field.
+#[post_process(shader = "swirl.wgsl", name = "Swirl", icon = "spiral")]
 pub struct Swirl {
-    #[field(min = -10.0, max = 10.0, speed = 0.01)]
+    #[field(min = -10.0, max = 10.0, speed = 0.01, default = 3.0)]
     pub angle: f32,
-    #[field(min = 0.01, max = 2.0, speed = 0.01)]
+    #[field(min = 0.01, max = 2.0, speed = 0.01, default = 0.5)]
     pub radius: f32,
-    #[field(skip)]
+    #[field(skip, default = 0.5)]
     pub center_x: f32,
-    #[field(skip)]
+    #[field(skip, default = 0.5)]
     pub center_y: f32,
 }
 
-impl Default for Swirl {
-    fn default() -> Self {
-        Self {
-            angle: 3.0,
-            radius: 0.5,
-            center_x: 0.5,
-            center_y: 0.5,
-        }
-    }
-}
-
+#[derive(Default)]
 pub struct SwirlPlugin;
 
 impl Plugin for SwirlPlugin {
     fn build(&self, app: &mut App) {
-        app.add_post_process::<Swirl>("swirl", WGSL, RenderPhase::LdrPost, 0.0);
+        bevy::asset::embedded_asset!(app, "swirl.wgsl");
+        app.add_plugins(renzora::postprocess::PostProcessPlugin::<Swirl>::default());
+        app.register_inspectable::<Swirl>();
     }
 }
 
-renzora_plugin::add!(SwirlPlugin);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The Rust struct and the shader must agree byte for byte. Nothing enforces
-    /// it at run time — the host copies these bytes straight into the uniform
-    /// buffer and the shader reads them back by offset — so a mismatch is not an
-    /// error, it is a wrong picture: every field from the mismatch onward reads
-    /// its neighbour's value.
-    #[test]
-    fn the_uniform_matches_the_shader() {
-        renzora_plugin::uniform_check::assert_uniform_matches::<Swirl>(WGSL, "SwirlSettings");
-    }
-}
+renzora::plugin!(SwirlPlugin, Runtime);

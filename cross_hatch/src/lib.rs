@@ -1,67 +1,34 @@
-#![no_std]
-//! Cross Hatch post-process effect.
+//! Cross-hatch shading post-process effect.
 //!
-//! Converted from the Bevy-linking `crates/renzora_cross_hatch`. Links no Bevy, so it
-//! rebuilds in about a second and hot-reloads, shader included. See `plugins/crt`
-//! for the conversion notes.
+//! `angle` is in radians and tops out at a quarter turn: past that the hatching
+//! is the same set of lines again, mirrored.
 
-extern crate alloc;
+use bevy::prelude::*;
+use renzora::{post_process, AppEditorExt};
 
-// Supplies the global allocator and panic handler that `std` would have. Expands
-// to nothing under `std` or `static_link`, so this is safe whichever way the
-// plugin ends up linked.
-renzora_plugin::no_std_runtime!();
-
-use renzora_plugin::prelude::*;
-
-const WGSL: &str = include_str!("cross_hatch.wgsl");
-
-#[derive(Component)]
-#[component(name = "Cross Hatch")]
-#[repr(C)]
+/// The macro appends `enabled` and pads the uniform out to two `vec4`s, so
+/// `cross_hatch.wgsl`'s `CrossHatchSettings` must match field for field.
+#[post_process(shader = "cross_hatch.wgsl", name = "Cross Hatch", icon = "scribble")]
 pub struct CrossHatch {
-    #[field(min = 2.0, max = 100.0, speed = 0.5)]
+    #[field(min = 2.0, max = 100.0, speed = 0.5, default = 30.0)]
     pub density: f32,
-    #[field(min = 0.01, max = 0.5, speed = 0.01)]
+    #[field(min = 0.01, max = 0.5, speed = 0.01, default = 0.1)]
     pub thickness: f32,
-    #[field(min = 0.0, max = 1.57, speed = 0.01)]
+    #[field(min = 0.0, max = 1.57, speed = 0.01, default = 0.785)]
     pub angle: f32,
-    #[field(min = 0.0, max = 1.0, speed = 0.01)]
+    #[field(min = 0.0, max = 1.0, speed = 0.01, default = 0.9)]
     pub brightness: f32,
 }
 
-impl Default for CrossHatch {
-    fn default() -> Self {
-        Self {
-            density: 30.0,
-            thickness: 0.1,
-            angle: 0.785,
-            brightness: 0.9,
-        }
-    }
-}
-
+#[derive(Default)]
 pub struct CrossHatchPlugin;
 
 impl Plugin for CrossHatchPlugin {
     fn build(&self, app: &mut App) {
-        app.add_post_process::<CrossHatch>("cross_hatch", WGSL, RenderPhase::LdrPost, 0.0);
+        bevy::asset::embedded_asset!(app, "cross_hatch.wgsl");
+        app.add_plugins(renzora::postprocess::PostProcessPlugin::<CrossHatch>::default());
+        app.register_inspectable::<CrossHatch>();
     }
 }
 
-renzora_plugin::add!(CrossHatchPlugin);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The Rust struct and the shader must agree byte for byte. Nothing enforces
-    /// it at run time — the host copies these bytes straight into the uniform
-    /// buffer and the shader reads them back by offset — so a mismatch is not an
-    /// error, it is a wrong picture: every field from the mismatch onward reads
-    /// its neighbour's value.
-    #[test]
-    fn the_uniform_matches_the_shader() {
-        renzora_plugin::uniform_check::assert_uniform_matches::<CrossHatch>(WGSL, "CrossHatchSettings");
-    }
-}
+renzora::plugin!(CrossHatchPlugin, Runtime);

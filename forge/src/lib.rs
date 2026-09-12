@@ -1,29 +1,33 @@
-#![no_std]
-extern crate alloc;
+//! Spawns a ring of meshes around an entity.
+//!
+//! Add **Forge** to anything and it lays `count` tori in a circle of `radius`
+//! around it, once. `Forged` is the marker that says it has already run, so the
+//! system's `Without<Forged>` filter is what keeps it from spawning a new ring
+//! every frame.
+//!
+//! The C-ABI version had to keep its mesh and material handles in two
+//! `AtomicU64`s, because the ABI passes an asset across as an opaque integer and
+//! a plugin has nowhere else to put one. A native plugin holds the real
+//! `Handle<T>`s in an ordinary resource.
 
-// Supplies the global allocator and panic handler that `std` would have. Expands
-// to nothing under `std` or `static_link`, so this is safe whichever way the
-// plugin ends up linked.
-renzora_plugin::no_std_runtime!();
+use bevy::prelude::*;
+use renzora::{AppEditorExt, Inspectable};
 
-use core::sync::atomic::{AtomicU64, Ordering};
-use renzora_plugin::prelude::*;
-use renzora_plugin::sys::{AssetHandle, Primitive};
-
-/// `x` is the major radius and `y` the minor — the ABI's documented meaning for
-/// a torus, which the host used to hand to bevy's `(inner, outer)` constructor
-/// in the wrong order.
+/// `x` is the major radius and `y` the minor. Bevy's `Torus::new` takes
+/// (inner, outer), so the two are converted rather than passed straight through.
 const MAJOR: f32 = 0.45;
 const MINOR: f32 = 0.18;
 
-static MESH: AtomicU64 = AtomicU64::new(u64::MAX);
-static MATERIAL: AtomicU64 = AtomicU64::new(u64::MAX);
-
-#[derive(Component)]
-#[repr(C)]
+/// How many meshes to lay out, and where.
+#[derive(Component, Clone, Debug, Reflect, Inspectable)]
+#[reflect(Component)]
+#[inspectable(name = "Forge", icon = "hammer", category = "tools")]
 pub struct Forge {
+    #[field(min = 1.0, max = 64.0)]
     pub count: i32,
+    #[field(speed = 0.05, min = 0.0, max = 100.0)]
     pub radius: f32,
+    #[field(speed = 0.05, min = -100.0, max = 100.0)]
     pub height: f32,
 }
 
@@ -37,46 +41,71 @@ impl Default for Forge {
     }
 }
 
-#[derive(Component, Default)]
-#[repr(C)]
-pub struct Forged {
-    pub _v: f32,
+/// Marks a `Forge` that has already spawned its ring.
+#[derive(Component, Default, Clone, Debug, Reflect)]
+#[reflect(Component)]
+pub struct Forged;
+
+/// The shared torus and its material, built once at startup.
+#[derive(Resource)]
+struct ForgeAssets {
+    mesh: Handle<Mesh>,
+    material: Handle<StandardMaterial>,
 }
 
-fn forge(mut q: Query<(Entity, &Forge), Without<Forged>>, mut cmds: Commands) {
-    let mesh = AssetHandle(MESH.load(Ordering::Relaxed));
-    let material = AssetHandle(MATERIAL.load(Ordering::Relaxed));
-    if !mesh.is_valid() || !material.is_valid() {
-        return;
-    }
-    for (e, f) in &mut q {
-        cmds.entity(e).insert(Forged::default());
+fn setup(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    commands.insert_resource(ForgeAssets {
+        // `Torus::new` is (inner, outer), and the authored pair is
+        // (major, minor): inner = major - minor, outer = major + minor.
+        mesh: meshes.add(Torus::new(MAJOR - MINOR, MAJOR + MINOR)),
+        material: materials.add(StandardMaterial {
+            base_color: Color::srgb(0.9, 0.6, 0.2),
+            ..default()
+        }),
+    });
+}
+
+fn forge(
+    mut commands: Commands,
+    assets: Res<ForgeAssets>,
+    q: Query<(Entity, &Forge), Without<Forged>>,
+) {
+    for (entity, f) in &q {
+        commands.entity(entity).insert(Forged);
 
         let n = f.count.max(1);
         for i in 0..n {
             let a = (i as f32 / n as f32) * core::f32::consts::TAU;
-            cmds.spawn_mesh(
-                mesh,
-                material,
+            commands.spawn((
+                // Named, because an unnamed entity is not written to the scene
+                // and would vanish on the next save.
+                Name::new(format!("Forged {i}")),
+                Mesh3d(assets.mesh.clone()),
+                MeshMaterial3d(assets.material.clone()),
                 Transform::from_xyz(a.cos() * f.radius, f.height, a.sin() * f.radius),
-            );
+                ChildOf(entity),
+            ));
         }
     }
 }
 
+#[derive(Default)]
 pub struct ForgePlugin;
 
 impl Plugin for ForgePlugin {
     fn build(&self, app: &mut App) {
-        let mesh = app.add_mesh(Primitive::Torus, Vec3::new(MAJOR, MINOR, 0.0));
-        let material = app.add_material([0.9, 0.6, 0.2, 1.0]);
-        MESH.store(mesh.0, Ordering::Relaxed);
-        MATERIAL.store(material.0, Ordering::Relaxed);
-
-        app.register_component::<Forge>()
-            .register_component::<Forged>()
-            .add_systems(Update, forge);
+        app.register_type::<Forge>()
+            .register_type::<Forged>()
+            .add_systems(Startup, setup)
+            // Gated on the assets resource, which `setup` inserts: the system
+            // would otherwise panic on its `Res<ForgeAssets>` the first frame.
+            .add_systems(Update, forge.run_if(resource_exists::<ForgeAssets>));
+        app.register_inspectable::<Forge>();
     }
 }
 
-renzora_plugin::add!(ForgePlugin);
+renzora::plugin!(ForgePlugin, Runtime);

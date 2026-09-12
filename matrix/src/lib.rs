@@ -1,76 +1,56 @@
-#![no_std]
-//! Matrix Rain post-process effect.
+//! Falling-code rain post-process effect.
 //!
-//! Converted from the Bevy-linking `crates/renzora_matrix`. Links no Bevy, so it
-//! rebuilds in about a second and hot-reloads, shader included. See `plugins/crt`
-//! for the conversion notes.
+//! Seven user fields plus `enabled` fills two `vec4`s exactly, so this is the
+//! one effect in the set that needs no padding at all.
 
-extern crate alloc;
+use bevy::prelude::*;
+use renzora::{post_process, AppEditorExt};
 
-// Supplies the global allocator and panic handler that `std` would have. Expands
-// to nothing under `std` or `static_link`, so this is safe whichever way the
-// plugin ends up linked.
-renzora_plugin::no_std_runtime!();
-
-use renzora_plugin::prelude::*;
-
-const WGSL: &str = include_str!("matrix.wgsl");
-
-#[derive(Component)]
-#[component(name = "Matrix Rain")]
-#[repr(C)]
+/// The macro appends `enabled`, so `matrix.wgsl`'s `MatrixSettings` must match
+/// field for field.
+#[post_process(shader = "matrix.wgsl", name = "Matrix Rain", icon = "binary")]
 pub struct Matrix {
-    #[field(min = 0.1, max = 10.0, speed = 0.05)]
+    #[field(min = 0.1, max = 10.0, speed = 0.05, default = 2.0)]
     pub speed: f32,
-    #[field(min = 5.0, max = 50.0, speed = 0.5)]
+    #[field(min = 5.0, max = 50.0, speed = 0.5, default = 20.0)]
     pub density: f32,
-    #[field(min = 0.0, max = 1.0, speed = 0.01)]
+    #[field(min = 0.0, max = 1.0, speed = 0.01, default = 0.5)]
     pub glow: f32,
-    #[field(min = 0.0, max = 1.0, speed = 0.01)]
+    #[field(min = 0.0, max = 1.0, speed = 0.01, default = 0.8)]
     pub trail_length: f32,
-    #[field(skip)]
+    #[field(skip, default = 0.0)]
     pub color_r: f32,
-    #[field(skip)]
+    #[field(skip, default = 1.0)]
     pub color_g: f32,
-    #[field(skip)]
+    /// Seconds, advanced by [`sync_time`].
+    #[field(skip, default = 0.0)]
     pub time: f32,
 }
 
-impl Default for Matrix {
-    fn default() -> Self {
-        Self {
-            speed: 2.0,
-            density: 20.0,
-            glow: 0.5,
-            trail_length: 0.8,
-            color_r: 0.0,
-            color_g: 1.0,
-            time: 0.0,
+/// Drives the shader's clock.
+///
+/// Nothing was writing this before, which left the rain hanging motionless: the
+/// framework uploads the component's bytes verbatim and interprets no field, so
+/// an animated effect has to tick its own.
+fn sync_time(mut q: Query<&mut Matrix>, time: Res<Time>) {
+    for mut s in &mut q {
+        s.time += time.delta_secs();
+        if s.time > 1024.0 {
+            s.time -= 1024.0;
         }
     }
 }
 
+#[derive(Default)]
 pub struct MatrixPlugin;
 
 impl Plugin for MatrixPlugin {
     fn build(&self, app: &mut App) {
-        app.add_post_process::<Matrix>("matrix", WGSL, RenderPhase::LdrPost, 0.0);
+        bevy::asset::embedded_asset!(app, "matrix.wgsl");
+        app.add_plugins(renzora::postprocess::PostProcessPlugin::<Matrix>::default());
+        app.add_systems(Update, sync_time);
+        app.register_inspectable::<Matrix>();
     }
 }
 
-renzora_plugin::add!(MatrixPlugin);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The Rust struct and the shader must agree byte for byte. Nothing enforces
-    /// it at run time — the host copies these bytes straight into the uniform
-    /// buffer and the shader reads them back by offset — so a mismatch is not an
-    /// error, it is a wrong picture: every field from the mismatch onward reads
-    /// its neighbour's value.
-    #[test]
-    fn the_uniform_matches_the_shader() {
-        renzora_plugin::uniform_check::assert_uniform_matches::<Matrix>(WGSL, "MatrixSettings");
-    }
-}
+renzora::plugin!(MatrixPlugin, Runtime);

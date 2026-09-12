@@ -1,74 +1,39 @@
-#![no_std]
-//! Outline post-process effect.
+//! Screen-space outline post-process effect.
 //!
-//! Converted from `crates/renzora_outline`, which wrote its `PostProcessEffect`
-//! impl and its `InspectorEntry` by hand rather than using `#[post_process]`.
-//! The ranges below came from that entry's `FieldDef` list. See `plugins/crt` for
-//! the conversion notes.
+//! `mix_mode` crossfades between drawing the outline over the picture and
+//! replacing the picture with it, so one effect covers both the comic-book look
+//! and a plain line render.
 
-extern crate alloc;
+use bevy::prelude::*;
+use renzora::{post_process, AppEditorExt};
 
-// Supplies the global allocator and panic handler that `std` would have. Expands
-// to nothing under `std` or `static_link`, so this is safe whichever way the
-// plugin ends up linked.
-renzora_plugin::no_std_runtime!();
-
-use renzora_plugin::prelude::*;
-
-const WGSL: &str = include_str!("outline.wgsl");
-
-#[derive(Component)]
-#[component(name = "Outline")]
-#[repr(C)]
+/// The macro appends `enabled` and pads the uniform out to two `vec4`s, so
+/// `outline.wgsl`'s `OutlineSettings` must match field for field.
+#[post_process(shader = "outline.wgsl", name = "Outline", icon = "bounding-box")]
 pub struct Outline {
-    #[field(min = 0.5, max = 5.0, speed = 0.05)]
+    #[field(min = 0.5, max = 5.0, speed = 0.05, default = 1.0)]
     pub thickness: f32,
-    #[field(min = 0.0, max = 1.0, speed = 0.005)]
+    #[field(min = 0.0, max = 1.0, speed = 0.005, default = 0.1)]
     pub threshold: f32,
-    #[field(skip)]
+    #[field(skip, default = 0.0)]
     pub color_r: f32,
-    #[field(skip)]
+    #[field(skip, default = 0.0)]
     pub color_g: f32,
-    #[field(skip)]
+    #[field(skip, default = 0.0)]
     pub color_b: f32,
-    #[field(min = 0.0, max = 1.0, speed = 0.01)]
+    #[field(min = 0.0, max = 1.0, speed = 0.01, default = 0.0)]
     pub mix_mode: f32,
 }
 
-impl Default for Outline {
-    fn default() -> Self {
-        Self {
-            thickness: 1.0,
-            threshold: 0.1,
-            color_r: 0.0,
-            color_g: 0.0,
-            color_b: 0.0,
-            mix_mode: 0.0,
-        }
-    }
-}
-
+#[derive(Default)]
 pub struct OutlinePlugin;
 
 impl Plugin for OutlinePlugin {
     fn build(&self, app: &mut App) {
-        app.add_post_process::<Outline>("outline", WGSL, RenderPhase::LdrPost, 0.0);
+        bevy::asset::embedded_asset!(app, "outline.wgsl");
+        app.add_plugins(renzora::postprocess::PostProcessPlugin::<Outline>::default());
+        app.register_inspectable::<Outline>();
     }
 }
 
-renzora_plugin::add!(OutlinePlugin);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The Rust struct and the shader must agree byte for byte. Nothing enforces
-    /// it at run time — the host copies these bytes straight into the uniform
-    /// buffer and the shader reads them back by offset — so a mismatch is not an
-    /// error, it is a wrong picture: every field from the mismatch onward reads
-    /// its neighbour's value.
-    #[test]
-    fn the_uniform_matches_the_shader() {
-        renzora_plugin::uniform_check::assert_uniform_matches::<Outline>(WGSL, "OutlineSettings");
-    }
-}
+renzora::plugin!(OutlinePlugin, Runtime);

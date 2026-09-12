@@ -1,0 +1,28 @@
+# Native plugin: an ordinary Bevy plugin shipped as source and compiled against
+# the staged SDK on the machine that installs it.
+#
+# ⚠ Do NOT run `cargo build` here. `plugins/` is outside the engine workspace, so
+# cargo would resolve a SECOND Bevy from crates.io and the plugin that came out
+# would have different `TypeId`s from the engine — it would load, run, and
+# corrupt the World. The path dependency below exists so rust-analyzer can
+# resolve `renzora::` while you author; the real build is `cargo renzora`.
+[workspace]
+
+[package]
+name = "lens_distortion"
+version = "0.1.0"
+edition = "2021"
+description = "Barrel and pincushion lens distortion, authored on the World Environment and routed onto cameras. Wraps Bevy's built-in LensDistortion effect."
+
+[lib]
+crate-type = ["dylib"]
+
+[dependencies]
+bevy = "0.19"
+renzora = { path = "../../engine/crates/renzora" }
+
+# No `serde` entry. `LensDistortionSettings` is authored in scenes and needs the
+# derives, but it takes them from `renzora::serde` — the engine's own copy. A
+# privately resolved serde is a DIFFERENT crate, so `#[reflect(Serialize)]`
+# would not be satisfied by it. Declaring nothing third-party also means cargo
+# is never invoked here and the whole build is one `rustc`.

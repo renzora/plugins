@@ -1,80 +1,39 @@
-#![no_std]
-//! God Rays post-process effect.
-//!
-//! Converted from `crates/renzora_god_rays`, which wrote its `PostProcessEffect`
-//! impl and its `InspectorEntry` by hand rather than using `#[post_process]`.
-//! The ranges below came from that entry's `FieldDef` list. See `plugins/crt` for
-//! the conversion notes.
+//! Volumetric light shaft post-process effect.
 
-extern crate alloc;
+use bevy::prelude::*;
+use renzora::{post_process, AppEditorExt};
 
-// Supplies the global allocator and panic handler that `std` would have. Expands
-// to nothing under `std` or `static_link`, so this is safe whichever way the
-// plugin ends up linked.
-renzora_plugin::no_std_runtime!();
-
-use renzora_plugin::prelude::*;
-
-const WGSL: &str = include_str!("god_rays.wgsl");
-
-#[derive(Component)]
-#[component(name = "God Rays")]
-#[repr(C)]
+/// The macro appends `enabled` and pads the uniform out to two `vec4`s, so
+/// `god_rays.wgsl`'s `GodRaysSettings` must match field for field.
+#[post_process(shader = "god_rays.wgsl", name = "God Rays", icon = "sun-horizon")]
 pub struct GodRays {
-    #[field(min = 0.0, max = 2.0, speed = 0.01)]
+    #[field(min = 0.0, max = 2.0, speed = 0.01, default = 0.5)]
     pub intensity: f32,
-    #[field(min = 0.9, max = 1.0, speed = 0.001)]
+    #[field(min = 0.9, max = 1.0, speed = 0.001, default = 0.97)]
     pub decay: f32,
-    #[field(min = 0.0, max = 2.0, speed = 0.01)]
+    #[field(min = 0.0, max = 2.0, speed = 0.01, default = 1.0)]
     pub density: f32,
-    /// Ray-march step count. Not inspectable — `FieldKind` has no `u32` — but it
-    /// MUST sit here, between `density` and `light_pos_x`, because that is where
-    /// the uniform block has it. While it was missing, the shader read the light
-    /// position as the sample count and `light_pos_y` as `light_pos_x`, so the
-    /// rays streamed from the wrong place.
-    #[field(skip)]
+    /// Ray-march step count. It MUST sit here, between `density` and
+    /// `light_pos_x`, because that is where the uniform block has it. Editable
+    /// now that the inspector has an integer field type; under the C ABI it had
+    /// to be skipped, because there was none. The shader clamps to 128.
+    #[field(min = 8.0, max = 128.0, default = 64.0)]
     pub num_samples: u32,
-    #[field(min = -1.0, max = 2.0, speed = 0.01)]
+    #[field(min = -1.0, max = 2.0, speed = 0.01, default = 0.5)]
     pub light_pos_x: f32,
-    #[field(min = -1.0, max = 2.0, speed = 0.01)]
+    #[field(min = -1.0, max = 2.0, speed = 0.01, default = 0.3)]
     pub light_pos_y: f32,
 }
 
-impl Default for GodRays {
-    fn default() -> Self {
-        Self {
-            intensity: 0.5,
-            decay: 0.97,
-            density: 1.0,
-            // The shader clamps to 128; 64 is the usual god-rays step count.
-            num_samples: 64,
-            light_pos_x: 0.5,
-            light_pos_y: 0.3,
-        }
-    }
-}
-
+#[derive(Default)]
 pub struct GodRaysPlugin;
 
 impl Plugin for GodRaysPlugin {
     fn build(&self, app: &mut App) {
-        app.add_post_process::<GodRays>("god_rays", WGSL, RenderPhase::LdrPost, 0.0);
+        bevy::asset::embedded_asset!(app, "god_rays.wgsl");
+        app.add_plugins(renzora::postprocess::PostProcessPlugin::<GodRays>::default());
+        app.register_inspectable::<GodRays>();
     }
 }
 
-renzora_plugin::add!(GodRaysPlugin);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The Rust struct and the shader must agree byte for byte. Nothing enforces
-    /// it at run time — the host copies these bytes straight into the uniform
-    /// buffer and the shader reads them back by offset — so a mismatch is not an
-    /// error, it is a wrong picture: every field from the mismatch onward reads
-    /// its neighbour's value.
-    #[test]
-    fn the_uniform_matches_the_shader() {
-        renzora_plugin::uniform_check::assert_uniform_matches::<GodRays>(WGSL, "GodRaysSettings");
-    }
-}
+renzora::plugin!(GodRaysPlugin, Runtime);

@@ -1,67 +1,35 @@
-#![no_std]
-//! Toon post-process effect.
+//! Cel-shading post-process effect.
 //!
-//! Converted from the Bevy-linking `crates/renzora_toon`. Links no Bevy, so it
-//! rebuilds in about a second and hot-reloads, shader included. See `plugins/crt`
-//! for the conversion notes.
+//! Quantises luminance into bands and draws an edge over the result, so it is
+//! `posterize` and `outline` in one pass rather than two, which keeps the edge
+//! aligned to the bands it is outlining.
 
-extern crate alloc;
+use bevy::prelude::*;
+use renzora::{post_process, AppEditorExt};
 
-// Supplies the global allocator and panic handler that `std` would have. Expands
-// to nothing under `std` or `static_link`, so this is safe whichever way the
-// plugin ends up linked.
-renzora_plugin::no_std_runtime!();
-
-use renzora_plugin::prelude::*;
-
-const WGSL: &str = include_str!("toon.wgsl");
-
-#[derive(Component)]
-#[component(name = "Toon")]
-#[repr(C)]
+/// The macro appends `enabled` and pads the uniform out to two `vec4`s, so
+/// `toon.wgsl`'s `ToonSettings` must match field for field.
+#[post_process(shader = "toon.wgsl", name = "Toon", icon = "paint-brush")]
 pub struct Toon {
-    #[field(min = 2.0, max = 16.0, speed = 0.1)]
+    #[field(min = 2.0, max = 16.0, speed = 0.1, default = 4.0)]
     pub levels: f32,
-    #[field(min = 0.0, max = 1.0, speed = 0.005)]
+    #[field(min = 0.0, max = 1.0, speed = 0.005, default = 0.1)]
     pub edge_threshold: f32,
-    #[field(min = 0.5, max = 5.0, speed = 0.05)]
+    #[field(min = 0.5, max = 5.0, speed = 0.05, default = 1.0)]
     pub edge_thickness: f32,
-    #[field(min = 0.0, max = 3.0, speed = 0.02)]
+    #[field(min = 0.0, max = 3.0, speed = 0.02, default = 1.2)]
     pub saturation_boost: f32,
 }
 
-impl Default for Toon {
-    fn default() -> Self {
-        Self {
-            levels: 4.0,
-            edge_threshold: 0.1,
-            edge_thickness: 1.0,
-            saturation_boost: 1.2,
-        }
-    }
-}
-
+#[derive(Default)]
 pub struct ToonPlugin;
 
 impl Plugin for ToonPlugin {
     fn build(&self, app: &mut App) {
-        app.add_post_process::<Toon>("toon", WGSL, RenderPhase::LdrPost, 0.0);
+        bevy::asset::embedded_asset!(app, "toon.wgsl");
+        app.add_plugins(renzora::postprocess::PostProcessPlugin::<Toon>::default());
+        app.register_inspectable::<Toon>();
     }
 }
 
-renzora_plugin::add!(ToonPlugin);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The Rust struct and the shader must agree byte for byte. Nothing enforces
-    /// it at run time — the host copies these bytes straight into the uniform
-    /// buffer and the shader reads them back by offset — so a mismatch is not an
-    /// error, it is a wrong picture: every field from the mismatch onward reads
-    /// its neighbour's value.
-    #[test]
-    fn the_uniform_matches_the_shader() {
-        renzora_plugin::uniform_check::assert_uniform_matches::<Toon>(WGSL, "ToonSettings");
-    }
-}
+renzora::plugin!(ToonPlugin, Runtime);

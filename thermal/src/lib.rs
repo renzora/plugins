@@ -1,64 +1,29 @@
-#![no_std]
-//! Thermal Vision post-process effect.
-//!
-//! Converted from the Bevy-linking `crates/renzora_thermal`. Links no Bevy, so it
-//! rebuilds in about a second and hot-reloads, shader included. See `plugins/crt`
-//! for the conversion notes.
+//! Thermal vision post-process effect.
 
-extern crate alloc;
+use bevy::prelude::*;
+use renzora::{post_process, AppEditorExt};
 
-// Supplies the global allocator and panic handler that `std` would have. Expands
-// to nothing under `std` or `static_link`, so this is safe whichever way the
-// plugin ends up linked.
-renzora_plugin::no_std_runtime!();
-
-use renzora_plugin::prelude::*;
-
-const WGSL: &str = include_str!("thermal.wgsl");
-
-#[derive(Component)]
-#[component(name = "Thermal Vision")]
-#[repr(C)]
+/// The macro appends `enabled` and pads the uniform out to two `vec4`s, so
+/// `thermal.wgsl`'s `ThermalSettings` must match field for field.
+#[post_process(shader = "thermal.wgsl", name = "Thermal Vision", icon = "thermometer")]
 pub struct Thermal {
-    #[field(min = 0.0, max = 1.0, speed = 0.01)]
+    #[field(min = 0.0, max = 1.0, speed = 0.01, default = 1.0)]
     pub intensity: f32,
-    #[field(min = 0.1, max = 3.0, speed = 0.01)]
+    #[field(min = 0.1, max = 3.0, speed = 0.01, default = 1.5)]
     pub contrast: f32,
-    #[field(min = 0.0, max = 1.0, speed = 0.01)]
+    #[field(min = 0.0, max = 1.0, speed = 0.01, default = 0.3)]
     pub cold_threshold: f32,
 }
 
-impl Default for Thermal {
-    fn default() -> Self {
-        Self {
-            intensity: 1.0,
-            contrast: 1.5,
-            cold_threshold: 0.3,
-        }
-    }
-}
-
+#[derive(Default)]
 pub struct ThermalPlugin;
 
 impl Plugin for ThermalPlugin {
     fn build(&self, app: &mut App) {
-        app.add_post_process::<Thermal>("thermal", WGSL, RenderPhase::LdrPost, 0.0);
+        bevy::asset::embedded_asset!(app, "thermal.wgsl");
+        app.add_plugins(renzora::postprocess::PostProcessPlugin::<Thermal>::default());
+        app.register_inspectable::<Thermal>();
     }
 }
 
-renzora_plugin::add!(ThermalPlugin);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The Rust struct and the shader must agree byte for byte. Nothing enforces
-    /// it at run time — the host copies these bytes straight into the uniform
-    /// buffer and the shader reads them back by offset — so a mismatch is not an
-    /// error, it is a wrong picture: every field from the mismatch onward reads
-    /// its neighbour's value.
-    #[test]
-    fn the_uniform_matches_the_shader() {
-        renzora_plugin::uniform_check::assert_uniform_matches::<Thermal>(WGSL, "ThermalSettings");
-    }
-}
+renzora::plugin!(ThermalPlugin, Runtime);

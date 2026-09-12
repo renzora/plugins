@@ -1,73 +1,35 @@
-#![no_std]
-//! Color Grading post-process effect.
-//!
-//! Converted from the Bevy-linking `crates/renzora_color_grading`. Links no Bevy, so it
-//! rebuilds in about a second and hot-reloads, shader included. See `plugins/crt`
-//! for the conversion notes.
+//! Colour grading post-process effect.
 
-extern crate alloc;
+use bevy::prelude::*;
+use renzora::{post_process, AppEditorExt};
 
-// Supplies the global allocator and panic handler that `std` would have. Expands
-// to nothing under `std` or `static_link`, so this is safe whichever way the
-// plugin ends up linked.
-renzora_plugin::no_std_runtime!();
-
-use renzora_plugin::prelude::*;
-
-const WGSL: &str = include_str!("color_grading.wgsl");
-
-#[derive(Component)]
-#[component(name = "Color Grading")]
-#[repr(C)]
+/// The macro appends `enabled` and pads the uniform out to two `vec4`s, so
+/// `color_grading.wgsl`'s `ColorGradingSettings` must match field for field.
+#[post_process(shader = "color_grading.wgsl", name = "Color Grading", icon = "sliders")]
 pub struct ColorGrading {
-    #[field(min = 0.0, max = 3.0, speed = 0.01)]
+    #[field(min = 0.0, max = 3.0, speed = 0.01, default = 1.0)]
     pub brightness: f32,
-    #[field(min = 0.0, max = 3.0, speed = 0.01)]
+    #[field(min = 0.0, max = 3.0, speed = 0.01, default = 1.0)]
     pub contrast: f32,
-    #[field(min = 0.0, max = 3.0, speed = 0.01)]
+    #[field(min = 0.0, max = 3.0, speed = 0.01, default = 1.0)]
     pub saturation: f32,
-    #[field(min = 0.1, max = 3.0, speed = 0.01)]
+    #[field(min = 0.1, max = 3.0, speed = 0.01, default = 1.0)]
     pub gamma: f32,
-    #[field(min = -1.0, max = 1.0, speed = 0.01)]
+    #[field(min = -1.0, max = 1.0, speed = 0.01, default = 0.0)]
     pub temperature: f32,
-    #[field(min = -1.0, max = 1.0, speed = 0.01)]
+    #[field(min = -1.0, max = 1.0, speed = 0.01, default = 0.0)]
     pub tint: f32,
 }
 
-impl Default for ColorGrading {
-    fn default() -> Self {
-        Self {
-            brightness: 1.0,
-            contrast: 1.0,
-            saturation: 1.0,
-            gamma: 1.0,
-            temperature: 0.0,
-            tint: 0.0,
-        }
-    }
-}
-
+#[derive(Default)]
 pub struct ColorGradingPlugin;
 
 impl Plugin for ColorGradingPlugin {
     fn build(&self, app: &mut App) {
-        app.add_post_process::<ColorGrading>("color_grading", WGSL, RenderPhase::LdrPost, 0.0);
+        bevy::asset::embedded_asset!(app, "color_grading.wgsl");
+        app.add_plugins(renzora::postprocess::PostProcessPlugin::<ColorGrading>::default());
+        app.register_inspectable::<ColorGrading>();
     }
 }
 
-renzora_plugin::add!(ColorGradingPlugin);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The Rust struct and the shader must agree byte for byte. Nothing enforces
-    /// it at run time — the host copies these bytes straight into the uniform
-    /// buffer and the shader reads them back by offset — so a mismatch is not an
-    /// error, it is a wrong picture: every field from the mismatch onward reads
-    /// its neighbour's value.
-    #[test]
-    fn the_uniform_matches_the_shader() {
-        renzora_plugin::uniform_check::assert_uniform_matches::<ColorGrading>(WGSL, "ColorGradingSettings");
-    }
-}
+renzora::plugin!(ColorGradingPlugin, Runtime);

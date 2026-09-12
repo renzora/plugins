@@ -1,70 +1,54 @@
-#![no_std]
-extern crate alloc;
+//! Pulsing vignette post-process effect.
+//!
+//! The shader used to be an inline `const WGSL: &str`. It is a file now because
+//! `embedded_asset!` takes a path: the WGSL still travels inside the compiled
+//! library, so nothing about distribution changes, but the compiler no longer
+//! has to be handed it as a string literal.
+//!
+//! `order = 1.0` is load-bearing. Everything else in the set sorts at `0.0`, and
+//! this darkens toward the edges: run it first and the other filters work on an
+//! already-vignetted picture, spreading the darkening into whatever they do. It
+//! has to land last.
 
-// Supplies the global allocator and panic handler that `std` would have. Expands
-// to nothing under `std` or `static_link`, so this is safe whichever way the
-// plugin ends up linked.
-renzora_plugin::no_std_runtime!();
+use bevy::prelude::*;
+use renzora::{post_process, AppEditorExt};
 
-use renzora_plugin::prelude::*;
-use renzora_plugin::sys::RenderPhase;
-
-#[derive(Component)]
-#[repr(C)]
+/// The macro appends `enabled` and pads the uniform out to two `vec4`s, so
+/// `pulse.wgsl`'s `PulseSettings` must match field for field.
+#[post_process(shader = "pulse.wgsl", name = "Pulse", icon = "pulse", order = 1.0)]
 pub struct Pulse {
+    #[field(min = 0.0, max = 2.0, speed = 0.01, default = 0.6)]
     pub strength: f32,
+    #[field(min = 0.0, max = 10.0, speed = 0.01, default = 2.0)]
     pub speed: f32,
-    /// Advanced by `tick` each frame — a system driving an effect's uniform.
+    /// Advanced by [`tick`] each frame.
+    #[field(skip, default = 0.0)]
     pub time: f32,
-    _pad: f32,
 }
 
-impl Default for Pulse {
-    fn default() -> Self {
-        Self {
-            strength: 0.6,
-            speed: 2.0,
-            time: 0.0,
-            _pad: 0.0,
+/// Drives the shader's clock, scaled by the authored `speed`.
+fn tick(mut q: Query<&mut Pulse>, time: Res<Time>) {
+    for mut p in &mut q {
+        let step = p.speed * time.delta_secs();
+        p.time += step;
+        // Wrapped on a multiple of TAU so the sine the shader takes of it is
+        // continuous across the wrap; a plain clamp would jump the phase.
+        if p.time > core::f32::consts::TAU * 1024.0 {
+            p.time -= core::f32::consts::TAU * 1024.0;
         }
     }
 }
 
-const WGSL: &str = r#"
-@group(0) @binding(0) var screen_texture: texture_2d<f32>;
-@group(0) @binding(1) var texture_sampler: sampler;
-
-struct Pulse {
-    strength: f32,
-    speed: f32,
-    time: f32,
-    _pad: f32,
-};
-@group(0) @binding(2) var<uniform> settings: Pulse;
-
-@fragment
-fn fragment(@builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    let c = textureSample(screen_texture, texture_sampler, uv);
-    let d = distance(uv, vec2<f32>(0.5, 0.5));
-    let wave = sin(settings.time) * 0.5 + 0.5;
-    let vignette = 1.0 - d * settings.strength * wave * 2.0;
-    return vec4<f32>(c.rgb * clamp(vignette, 0.0, 1.0), c.a);
-}
-"#;
-
-fn tick(mut q: Query<&mut Pulse>, time: Res<Time>) {
-    for p in &mut q {
-        p.time += p.speed * time.delta_secs();
-    }
-}
-
+#[derive(Default)]
 pub struct PulsePlugin;
 
 impl Plugin for PulsePlugin {
     fn build(&self, app: &mut App) {
-        app.add_post_process::<Pulse>("pulse", WGSL, RenderPhase::LdrPost, 1.0)
-            .add_systems(Update, tick);
+        bevy::asset::embedded_asset!(app, "pulse.wgsl");
+        app.add_plugins(renzora::postprocess::PostProcessPlugin::<Pulse>::default());
+        app.add_systems(Update, tick);
+        app.register_inspectable::<Pulse>();
     }
 }
 
-renzora_plugin::add!(PulsePlugin);
+renzora::plugin!(PulsePlugin, Runtime);

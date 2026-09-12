@@ -1,64 +1,34 @@
-#![no_std]
-//! Chromatic Ring post-process effect.
+//! Radial chromatic aberration post-process effect.
 //!
-//! Converted from the Bevy-linking `crates/renzora_chromatic_ring`. Links no Bevy, so it
-//! rebuilds in about a second and hot-reloads, shader included. See `plugins/crt`
-//! for the conversion notes.
+//! The radial counterpart to `chromatic_aberration`: the split grows with
+//! distance from the centre rather than running one way across the screen, which
+//! is what a real lens does. `radius` is where it starts and `falloff` how
+//! quickly it climbs from there.
 
-extern crate alloc;
+use bevy::prelude::*;
+use renzora::{post_process, AppEditorExt};
 
-// Supplies the global allocator and panic handler that `std` would have. Expands
-// to nothing under `std` or `static_link`, so this is safe whichever way the
-// plugin ends up linked.
-renzora_plugin::no_std_runtime!();
-
-use renzora_plugin::prelude::*;
-
-const WGSL: &str = include_str!("chromatic_ring.wgsl");
-
-#[derive(Component)]
-#[component(name = "Chromatic Ring")]
-#[repr(C)]
+/// The macro appends `enabled` and pads the uniform out to two `vec4`s, so
+/// `chromatic_ring.wgsl`'s `ChromaticRingSettings` must match field for field.
+#[post_process(shader = "chromatic_ring.wgsl", name = "Chromatic Ring", icon = "circle-dashed")]
 pub struct ChromaticRing {
-    #[field(min = 0.0, max = 0.05, speed = 0.001)]
+    #[field(min = 0.0, max = 0.05, speed = 0.001, default = 0.008)]
     pub intensity: f32,
-    #[field(min = 0.0, max = 2.0, speed = 0.01)]
+    #[field(min = 0.0, max = 2.0, speed = 0.01, default = 0.8)]
     pub radius: f32,
-    #[field(min = 0.01, max = 1.0, speed = 0.01)]
+    #[field(min = 0.01, max = 1.0, speed = 0.01, default = 0.4)]
     pub falloff: f32,
 }
 
-impl Default for ChromaticRing {
-    fn default() -> Self {
-        Self {
-            intensity: 0.008,
-            radius: 0.8,
-            falloff: 0.4,
-        }
-    }
-}
-
+#[derive(Default)]
 pub struct ChromaticRingPlugin;
 
 impl Plugin for ChromaticRingPlugin {
     fn build(&self, app: &mut App) {
-        app.add_post_process::<ChromaticRing>("chromatic_ring", WGSL, RenderPhase::LdrPost, 0.0);
+        bevy::asset::embedded_asset!(app, "chromatic_ring.wgsl");
+        app.add_plugins(renzora::postprocess::PostProcessPlugin::<ChromaticRing>::default());
+        app.register_inspectable::<ChromaticRing>();
     }
 }
 
-renzora_plugin::add!(ChromaticRingPlugin);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The Rust struct and the shader must agree byte for byte. Nothing enforces
-    /// it at run time — the host copies these bytes straight into the uniform
-    /// buffer and the shader reads them back by offset — so a mismatch is not an
-    /// error, it is a wrong picture: every field from the mismatch onward reads
-    /// its neighbour's value.
-    #[test]
-    fn the_uniform_matches_the_shader() {
-        renzora_plugin::uniform_check::assert_uniform_matches::<ChromaticRing>(WGSL, "ChromaticRingSettings");
-    }
-}
+renzora::plugin!(ChromaticRingPlugin, Runtime);

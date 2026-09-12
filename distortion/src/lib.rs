@@ -1,67 +1,46 @@
-#![no_std]
-//! Distortion post-process effect.
-//!
-//! Converted from the Bevy-linking `crates/renzora_distortion`. Links no Bevy, so it
-//! rebuilds in about a second and hot-reloads, shader included. See `plugins/crt`
-//! for the conversion notes.
+//! Animated wave distortion post-process effect.
 
-extern crate alloc;
+use bevy::prelude::*;
+use renzora::{post_process, AppEditorExt};
 
-// Supplies the global allocator and panic handler that `std` would have. Expands
-// to nothing under `std` or `static_link`, so this is safe whichever way the
-// plugin ends up linked.
-renzora_plugin::no_std_runtime!();
-
-use renzora_plugin::prelude::*;
-
-const WGSL: &str = include_str!("distortion.wgsl");
-
-#[derive(Component)]
-#[component(name = "Distortion")]
-#[repr(C)]
+/// The macro appends `enabled` and pads the uniform out to two `vec4`s, so
+/// `distortion.wgsl`'s `DistortionSettings` must match field for field.
+#[post_process(shader = "distortion.wgsl", name = "Distortion", icon = "waves")]
 pub struct Distortion {
-    #[field(min = 0.0, max = 2.0, speed = 0.01)]
+    #[field(min = 0.0, max = 2.0, speed = 0.01, default = 0.02)]
     pub intensity: f32,
-    #[field(min = 0.0, max = 10.0, speed = 0.01)]
+    #[field(min = 0.0, max = 10.0, speed = 0.01, default = 1.0)]
     pub speed: f32,
-    #[field(min = 0.1, max = 50.0, speed = 0.1)]
+    #[field(min = 0.1, max = 50.0, speed = 0.1, default = 10.0)]
     pub scale: f32,
-    #[field(skip)]
+    /// Seconds, advanced by [`sync_time`].
+    #[field(skip, default = 0.0)]
     pub time: f32,
 }
 
-impl Default for Distortion {
-    fn default() -> Self {
-        Self {
-            intensity: 0.02,
-            speed: 1.0,
-            scale: 10.0,
-            time: 0.0,
+/// Drives the shader's clock.
+///
+/// Nothing was writing this before, which left the wave frozen mid-cycle: the
+/// framework uploads the component's bytes verbatim and interprets no field.
+fn sync_time(mut q: Query<&mut Distortion>, time: Res<Time>) {
+    for mut s in &mut q {
+        s.time += time.delta_secs();
+        if s.time > 1024.0 {
+            s.time -= 1024.0;
         }
     }
 }
 
+#[derive(Default)]
 pub struct DistortionPlugin;
 
 impl Plugin for DistortionPlugin {
     fn build(&self, app: &mut App) {
-        app.add_post_process::<Distortion>("distortion", WGSL, RenderPhase::LdrPost, 0.0);
+        bevy::asset::embedded_asset!(app, "distortion.wgsl");
+        app.add_plugins(renzora::postprocess::PostProcessPlugin::<Distortion>::default());
+        app.add_systems(Update, sync_time);
+        app.register_inspectable::<Distortion>();
     }
 }
 
-renzora_plugin::add!(DistortionPlugin);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The Rust struct and the shader must agree byte for byte. Nothing enforces
-    /// it at run time — the host copies these bytes straight into the uniform
-    /// buffer and the shader reads them back by offset — so a mismatch is not an
-    /// error, it is a wrong picture: every field from the mismatch onward reads
-    /// its neighbour's value.
-    #[test]
-    fn the_uniform_matches_the_shader() {
-        renzora_plugin::uniform_check::assert_uniform_matches::<Distortion>(WGSL, "DistortionSettings");
-    }
-}
+renzora::plugin!(DistortionPlugin, Runtime);

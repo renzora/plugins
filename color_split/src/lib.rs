@@ -1,64 +1,33 @@
-#![no_std]
-//! Color Split post-process effect.
+//! Directional RGB split post-process effect.
 //!
-//! Converted from the Bevy-linking `crates/renzora_color_split`. Links no Bevy, so it
-//! rebuilds in about a second and hot-reloads, shader included. See `plugins/crt`
-//! for the conversion notes.
+//! Red and blue are pushed opposite ways along one axis and green is left where
+//! it is, which is why only two offsets are authored. `angle` is in radians, so
+//! its maximum is a full turn.
 
-extern crate alloc;
+use bevy::prelude::*;
+use renzora::{post_process, AppEditorExt};
 
-// Supplies the global allocator and panic handler that `std` would have. Expands
-// to nothing under `std` or `static_link`, so this is safe whichever way the
-// plugin ends up linked.
-renzora_plugin::no_std_runtime!();
-
-use renzora_plugin::prelude::*;
-
-const WGSL: &str = include_str!("color_split.wgsl");
-
-#[derive(Component)]
-#[component(name = "Color Split")]
-#[repr(C)]
+/// The macro appends `enabled` and pads the uniform out to two `vec4`s, so
+/// `color_split.wgsl`'s `ColorSplitSettings` must match field for field.
+#[post_process(shader = "color_split.wgsl", name = "Color Split", icon = "arrows-out-line-horizontal")]
 pub struct ColorSplit {
-    #[field(min = 0.0, max = 0.05, speed = 0.001)]
+    #[field(min = 0.0, max = 0.05, speed = 0.001, default = 0.005)]
     pub offset_r: f32,
-    #[field(min = 0.0, max = 0.05, speed = 0.001)]
+    #[field(min = 0.0, max = 0.05, speed = 0.001, default = 0.005)]
     pub offset_b: f32,
-    #[field(min = 0.0, max = 6.283, speed = 0.01)]
+    #[field(min = 0.0, max = 6.283, speed = 0.01, default = 0.0)]
     pub angle: f32,
 }
 
-impl Default for ColorSplit {
-    fn default() -> Self {
-        Self {
-            offset_r: 0.005,
-            offset_b: 0.005,
-            angle: 0.0,
-        }
-    }
-}
-
+#[derive(Default)]
 pub struct ColorSplitPlugin;
 
 impl Plugin for ColorSplitPlugin {
     fn build(&self, app: &mut App) {
-        app.add_post_process::<ColorSplit>("color_split", WGSL, RenderPhase::LdrPost, 0.0);
+        bevy::asset::embedded_asset!(app, "color_split.wgsl");
+        app.add_plugins(renzora::postprocess::PostProcessPlugin::<ColorSplit>::default());
+        app.register_inspectable::<ColorSplit>();
     }
 }
 
-renzora_plugin::add!(ColorSplitPlugin);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The Rust struct and the shader must agree byte for byte. Nothing enforces
-    /// it at run time — the host copies these bytes straight into the uniform
-    /// buffer and the shader reads them back by offset — so a mismatch is not an
-    /// error, it is a wrong picture: every field from the mismatch onward reads
-    /// its neighbour's value.
-    #[test]
-    fn the_uniform_matches_the_shader() {
-        renzora_plugin::uniform_check::assert_uniform_matches::<ColorSplit>(WGSL, "ColorSplitSettings");
-    }
-}
+renzora::plugin!(ColorSplitPlugin, Runtime);

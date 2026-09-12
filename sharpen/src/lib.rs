@@ -1,58 +1,25 @@
-#![no_std]
 //! Sharpen post-process effect.
-//!
-//! Converted from the Bevy-linking `crates/renzora_sharpen`. Links no Bevy, so it
-//! rebuilds in about a second and hot-reloads, shader included. See `plugins/crt`
-//! for the conversion notes.
 
-extern crate alloc;
+use bevy::prelude::*;
+use renzora::{post_process, AppEditorExt};
 
-// Supplies the global allocator and panic handler that `std` would have. Expands
-// to nothing under `std` or `static_link`, so this is safe whichever way the
-// plugin ends up linked.
-renzora_plugin::no_std_runtime!();
-
-use renzora_plugin::prelude::*;
-
-const WGSL: &str = include_str!("sharpen.wgsl");
-
-#[derive(Component)]
-#[component(name = "Sharpen")]
-#[repr(C)]
+/// The macro appends `enabled` and pads the uniform out to two `vec4`s, so
+/// `sharpen.wgsl`'s `SharpenSettings` must match field for field.
+#[post_process(shader = "sharpen.wgsl", name = "Sharpen", icon = "triangle")]
 pub struct Sharpen {
-    #[field(min = 0.0, max = 3.0, speed = 0.01)]
+    #[field(min = 0.0, max = 3.0, speed = 0.01, default = 0.5)]
     pub strength: f32,
 }
 
-impl Default for Sharpen {
-    fn default() -> Self {
-        Self {
-            strength: 0.5,
-        }
-    }
-}
-
+#[derive(Default)]
 pub struct SharpenPlugin;
 
 impl Plugin for SharpenPlugin {
     fn build(&self, app: &mut App) {
-        app.add_post_process::<Sharpen>("sharpen", WGSL, RenderPhase::LdrPost, 0.0);
+        bevy::asset::embedded_asset!(app, "sharpen.wgsl");
+        app.add_plugins(renzora::postprocess::PostProcessPlugin::<Sharpen>::default());
+        app.register_inspectable::<Sharpen>();
     }
 }
 
-renzora_plugin::add!(SharpenPlugin);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The Rust struct and the shader must agree byte for byte. Nothing enforces
-    /// it at run time — the host copies these bytes straight into the uniform
-    /// buffer and the shader reads them back by offset — so a mismatch is not an
-    /// error, it is a wrong picture: every field from the mismatch onward reads
-    /// its neighbour's value.
-    #[test]
-    fn the_uniform_matches_the_shader() {
-        renzora_plugin::uniform_check::assert_uniform_matches::<Sharpen>(WGSL, "SharpenSettings");
-    }
-}
+renzora::plugin!(SharpenPlugin, Runtime);

@@ -1,70 +1,39 @@
-#![no_std]
-//! Palette Quantization post-process effect.
-//!
-//! Converted from `crates/renzora_palette_quantization`, which wrote its `PostProcessEffect`
-//! impl and its `InspectorEntry` by hand rather than using `#[post_process]`.
-//! The ranges below came from that entry's `FieldDef` list. See `plugins/crt` for
-//! the conversion notes.
+//! Palette quantization post-process effect.
 
-extern crate alloc;
+use bevy::prelude::*;
+use renzora::{post_process, AppEditorExt};
 
-// Supplies the global allocator and panic handler that `std` would have. Expands
-// to nothing under `std` or `static_link`, so this is safe whichever way the
-// plugin ends up linked.
-renzora_plugin::no_std_runtime!();
-
-use renzora_plugin::prelude::*;
-
-const WGSL: &str = include_str!("palette_quantization.wgsl");
-
-#[derive(Component)]
-#[component(name = "Palette Quantization")]
-#[repr(C)]
+/// The macro appends `enabled` and pads the uniform out to two `vec4`s, so
+/// `palette_quantization.wgsl`'s `PaletteQuantizationSettings` must match field
+/// for field.
+#[post_process(
+    shader = "palette_quantization.wgsl",
+    name = "Palette Quantization",
+    icon = "palette"
+)]
 pub struct PaletteQuantization {
-    /// Quantization levels per channel. Not inspectable — `FieldKind` has no
-    /// `u32` — but it MUST come FIRST, because that is where the uniform block
-    /// has it. While it was missing, the shader read `num_colors` from
-    /// `dithering`'s bit pattern (0.5 reinterprets as 1,056,964,608 levels,
-    /// which quantizes to nothing) and read `dithering` from whatever followed.
-    /// The effect did nothing at all.
-    #[field(skip)]
+    /// Quantization levels per channel. It MUST come first, because that is
+    /// where the uniform block has it. Editable now that the inspector has an
+    /// integer field type; under the C ABI it had to be skipped, because there
+    /// was none. 8 levels is 512 colours, the classic retro-palette look this
+    /// effect is for, and the shader floors it at 2.
+    #[field(min = 2.0, max = 64.0, default = 8.0)]
     pub num_colors: u32,
-    #[field(min = 0.0, max = 1.0, speed = 0.01)]
+    #[field(min = 0.0, max = 1.0, speed = 0.01, default = 0.5)]
     pub dithering: f32,
 }
 
-impl Default for PaletteQuantization {
-    fn default() -> Self {
-        Self {
-            // 8 levels per channel — 512 colours, the classic retro-palette look
-            // this effect is for. The shader floors it at 2.
-            num_colors: 8,
-            dithering: 0.5,
-        }
-    }
-}
-
+#[derive(Default)]
 pub struct PaletteQuantizationPlugin;
 
 impl Plugin for PaletteQuantizationPlugin {
     fn build(&self, app: &mut App) {
-        app.add_post_process::<PaletteQuantization>("palette_quantization", WGSL, RenderPhase::LdrPost, 0.0);
+        bevy::asset::embedded_asset!(app, "palette_quantization.wgsl");
+        app.add_plugins(
+            renzora::postprocess::PostProcessPlugin::<PaletteQuantization>::default(),
+        );
+        app.register_inspectable::<PaletteQuantization>();
     }
 }
 
-renzora_plugin::add!(PaletteQuantizationPlugin);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The Rust struct and the shader must agree byte for byte. Nothing enforces
-    /// it at run time — the host copies these bytes straight into the uniform
-    /// buffer and the shader reads them back by offset — so a mismatch is not an
-    /// error, it is a wrong picture: every field from the mismatch onward reads
-    /// its neighbour's value.
-    #[test]
-    fn the_uniform_matches_the_shader() {
-        renzora_plugin::uniform_check::assert_uniform_matches::<PaletteQuantization>(WGSL, "PaletteQuantizationSettings");
-    }
-}
+renzora::plugin!(PaletteQuantizationPlugin, Runtime);

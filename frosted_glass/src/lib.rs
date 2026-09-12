@@ -1,61 +1,27 @@
-#![no_std]
-//! Frosted Glass post-process effect.
-//!
-//! Converted from the Bevy-linking `crates/renzora_frosted_glass`. Links no Bevy, so it
-//! rebuilds in about a second and hot-reloads, shader included. See `plugins/crt`
-//! for the conversion notes.
+//! Frosted glass post-process effect.
 
-extern crate alloc;
+use bevy::prelude::*;
+use renzora::{post_process, AppEditorExt};
 
-// Supplies the global allocator and panic handler that `std` would have. Expands
-// to nothing under `std` or `static_link`, so this is safe whichever way the
-// plugin ends up linked.
-renzora_plugin::no_std_runtime!();
-
-use renzora_plugin::prelude::*;
-
-const WGSL: &str = include_str!("frosted_glass.wgsl");
-
-#[derive(Component)]
-#[component(name = "Frosted Glass")]
-#[repr(C)]
+/// The macro appends `enabled` and pads the uniform out to two `vec4`s, so
+/// `frosted_glass.wgsl`'s `FrostedGlassSettings` must match field for field.
+#[post_process(shader = "frosted_glass.wgsl", name = "Frosted Glass", icon = "snowflake")]
 pub struct FrostedGlass {
-    #[field(min = 0.0, max = 0.05, speed = 0.001)]
+    #[field(min = 0.0, max = 0.05, speed = 0.001, default = 0.01)]
     pub intensity: f32,
-    #[field(min = 1.0, max = 50.0, speed = 0.5)]
+    #[field(min = 1.0, max = 50.0, speed = 0.5, default = 10.0)]
     pub scale: f32,
 }
 
-impl Default for FrostedGlass {
-    fn default() -> Self {
-        Self {
-            intensity: 0.01,
-            scale: 10.0,
-        }
-    }
-}
-
+#[derive(Default)]
 pub struct FrostedGlassPlugin;
 
 impl Plugin for FrostedGlassPlugin {
     fn build(&self, app: &mut App) {
-        app.add_post_process::<FrostedGlass>("frosted_glass", WGSL, RenderPhase::LdrPost, 0.0);
+        bevy::asset::embedded_asset!(app, "frosted_glass.wgsl");
+        app.add_plugins(renzora::postprocess::PostProcessPlugin::<FrostedGlass>::default());
+        app.register_inspectable::<FrostedGlass>();
     }
 }
 
-renzora_plugin::add!(FrostedGlassPlugin);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The Rust struct and the shader must agree byte for byte. Nothing enforces
-    /// it at run time — the host copies these bytes straight into the uniform
-    /// buffer and the shader reads them back by offset — so a mismatch is not an
-    /// error, it is a wrong picture: every field from the mismatch onward reads
-    /// its neighbour's value.
-    #[test]
-    fn the_uniform_matches_the_shader() {
-        renzora_plugin::uniform_check::assert_uniform_matches::<FrostedGlass>(WGSL, "FrostedGlassSettings");
-    }
-}
+renzora::plugin!(FrostedGlassPlugin, Runtime);

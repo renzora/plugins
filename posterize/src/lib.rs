@@ -1,58 +1,25 @@
-#![no_std]
 //! Posterize post-process effect.
-//!
-//! Converted from the Bevy-linking `crates/renzora_posterize`. Links no Bevy, so it
-//! rebuilds in about a second and hot-reloads, shader included. See `plugins/crt`
-//! for the conversion notes.
 
-extern crate alloc;
+use bevy::prelude::*;
+use renzora::{post_process, AppEditorExt};
 
-// Supplies the global allocator and panic handler that `std` would have. Expands
-// to nothing under `std` or `static_link`, so this is safe whichever way the
-// plugin ends up linked.
-renzora_plugin::no_std_runtime!();
-
-use renzora_plugin::prelude::*;
-
-const WGSL: &str = include_str!("posterize.wgsl");
-
-#[derive(Component)]
-#[component(name = "Posterize")]
-#[repr(C)]
+/// The macro appends `enabled` and pads the uniform out to two `vec4`s, so
+/// `posterize.wgsl`'s `PosterizeSettings` must match field for field.
+#[post_process(shader = "posterize.wgsl", name = "Posterize", icon = "stack-simple")]
 pub struct Posterize {
-    #[field(min = 2.0, max = 64.0, speed = 1.0)]
+    #[field(min = 2.0, max = 64.0, speed = 1.0, default = 8.0)]
     pub levels: f32,
 }
 
-impl Default for Posterize {
-    fn default() -> Self {
-        Self {
-            levels: 8.0,
-        }
-    }
-}
-
+#[derive(Default)]
 pub struct PosterizePlugin;
 
 impl Plugin for PosterizePlugin {
     fn build(&self, app: &mut App) {
-        app.add_post_process::<Posterize>("posterize", WGSL, RenderPhase::LdrPost, 0.0);
+        bevy::asset::embedded_asset!(app, "posterize.wgsl");
+        app.add_plugins(renzora::postprocess::PostProcessPlugin::<Posterize>::default());
+        app.register_inspectable::<Posterize>();
     }
 }
 
-renzora_plugin::add!(PosterizePlugin);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The Rust struct and the shader must agree byte for byte. Nothing enforces
-    /// it at run time — the host copies these bytes straight into the uniform
-    /// buffer and the shader reads them back by offset — so a mismatch is not an
-    /// error, it is a wrong picture: every field from the mismatch onward reads
-    /// its neighbour's value.
-    #[test]
-    fn the_uniform_matches_the_shader() {
-        renzora_plugin::uniform_check::assert_uniform_matches::<Posterize>(WGSL, "PosterizeSettings");
-    }
-}
+renzora::plugin!(PosterizePlugin, Runtime);

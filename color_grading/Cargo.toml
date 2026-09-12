@@ -1,20 +1,24 @@
+# Native plugin: an ordinary Bevy plugin shipped as source and compiled against
+# the staged SDK on the machine that installs it.
+#
+# ⚠ Do NOT run `cargo build` here. `plugins/` is outside the engine workspace, so
+# cargo would resolve a SECOND Bevy from crates.io and the plugin that came out
+# would have different `TypeId`s from the engine — it would load, run, and
+# corrupt the World. The path dependency below exists so rust-analyzer can
+# resolve `renzora::` while you author; the real build is `cargo renzora`.
 [workspace]
 
 [package]
 name = "color_grading"
 version = "0.1.0"
 edition = "2021"
-description = "Color Grading post-process effect."
+description = "Colour grading post-process effect."
 
 [lib]
-crate-type = ["cdylib"]
+# `dylib` is what makes this a NATIVE plugin rather than a C-ABI one: it shares
+# Rust types with the host. `cdylib` would be the C ABI, which links no Bevy.
+crate-type = ["dylib"]
 
 [dependencies]
-renzora_plugin = { path = "../../sdk/plugin-api/renzora_plugin", default-features = false, features = ["libm"] }
-
-[profile.dist]
-inherits = "release"
-opt-level = 2
-strip = "symbols"
-# no_std cannot unwind on stable.
-panic = "abort"
+bevy = "0.19"
+renzora = { path = "../../engine/crates/renzora" }

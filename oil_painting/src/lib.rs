@@ -1,61 +1,31 @@
-#![no_std]
-//! Oil Painting post-process effect.
+//! Oil painting post-process effect.
 //!
-//! Converted from the Bevy-linking `crates/renzora_oil_painting`. Links no Bevy, so it
-//! rebuilds in about a second and hot-reloads, shader included. See `plugins/crt`
-//! for the conversion notes.
+//! A simplified Kuwahara filter with luminance bucketing on top, which is what
+//! gives it visible brush clumps rather than the smooth flattening `kuwahara`
+//! produces. The sample loop is O(radius²), so `radius` is the cost knob.
 
-extern crate alloc;
+use bevy::prelude::*;
+use renzora::{post_process, AppEditorExt};
 
-// Supplies the global allocator and panic handler that `std` would have. Expands
-// to nothing under `std` or `static_link`, so this is safe whichever way the
-// plugin ends up linked.
-renzora_plugin::no_std_runtime!();
-
-use renzora_plugin::prelude::*;
-
-const WGSL: &str = include_str!("oil_painting.wgsl");
-
-#[derive(Component)]
-#[component(name = "Oil Painting")]
-#[repr(C)]
+/// The macro appends `enabled` and pads the uniform out to two `vec4`s, so
+/// `oil_painting.wgsl`'s `OilPaintingSettings` must match field for field.
+#[post_process(shader = "oil_painting.wgsl", name = "Oil Painting", icon = "paint-bucket")]
 pub struct OilPainting {
-    #[field(min = 1.0, max = 8.0, speed = 0.1)]
+    #[field(min = 1.0, max = 8.0, speed = 0.1, default = 3.0)]
     pub radius: f32,
-    #[field(min = 4.0, max = 32.0, speed = 0.5)]
+    #[field(min = 4.0, max = 32.0, speed = 0.5, default = 8.0)]
     pub levels: f32,
 }
 
-impl Default for OilPainting {
-    fn default() -> Self {
-        Self {
-            radius: 3.0,
-            levels: 8.0,
-        }
-    }
-}
-
+#[derive(Default)]
 pub struct OilPaintingPlugin;
 
 impl Plugin for OilPaintingPlugin {
     fn build(&self, app: &mut App) {
-        app.add_post_process::<OilPainting>("oil_painting", WGSL, RenderPhase::LdrPost, 0.0);
+        bevy::asset::embedded_asset!(app, "oil_painting.wgsl");
+        app.add_plugins(renzora::postprocess::PostProcessPlugin::<OilPainting>::default());
+        app.register_inspectable::<OilPainting>();
     }
 }
 
-renzora_plugin::add!(OilPaintingPlugin);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The Rust struct and the shader must agree byte for byte. Nothing enforces
-    /// it at run time — the host copies these bytes straight into the uniform
-    /// buffer and the shader reads them back by offset — so a mismatch is not an
-    /// error, it is a wrong picture: every field from the mismatch onward reads
-    /// its neighbour's value.
-    #[test]
-    fn the_uniform_matches_the_shader() {
-        renzora_plugin::uniform_check::assert_uniform_matches::<OilPainting>(WGSL, "OilPaintingSettings");
-    }
-}
+renzora::plugin!(OilPaintingPlugin, Runtime);

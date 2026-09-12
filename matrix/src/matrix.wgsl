@@ -1,6 +1,10 @@
 @group(0) @binding(0) var screen_texture: texture_2d<f32>;
 @group(0) @binding(1) var texture_sampler: sampler;
 
+// Must match the struct `#[post_process]` generates, field for field: the user
+// fields in declaration order, then `enabled` last. Seven fields plus `enabled`
+// fills two vec4s exactly, so there is no padding here. Nothing checks this at
+// run time.
 struct MatrixSettings {
     speed: f32,
     density: f32,
@@ -9,6 +13,7 @@ struct MatrixSettings {
     color_r: f32,
     color_g: f32,
     time: f32,
+    enabled: f32,
 };
 @group(0) @binding(2) var<uniform> settings: MatrixSettings;
 
