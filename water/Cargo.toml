@@ -1,0 +1,29 @@
+# Native plugin: an ordinary Bevy plugin shipped as source and compiled against
+# the staged SDK on the machine that installs it.
+#
+# ⚠ Do NOT run `cargo build` here. `plugins/` is outside the engine workspace, so
+# cargo would resolve a SECOND Bevy from crates.io and the plugin that came out
+# would have different `TypeId`s from the engine — it would load, run, and
+# corrupt the World. The path dependency below exists so rust-analyzer can
+# resolve `renzora::` while you author; the real build is `cargo renzora`.
+[workspace]
+
+[package]
+name = "water"
+version = "0.1.0"
+edition = "2021"
+description = "FFT ocean water: a GPU spectrum and inverse FFT drive a displaced surface mesh, with buoyancy for anything floating on it."
+
+[lib]
+crate-type = ["dylib"]
+
+[dependencies]
+bevy = "0.19"
+renzora = { path = "../../engine/crates/renzora" }
+
+# No `avian3d` and no `serde` entry. Buoyancy reaches avian through
+# `renzora::avian3d`, which is the one compilation the engine's physics also
+# steps — a copy resolved here would be a second Bevy and bodies this plugin
+# pushed would be invisible to it. serde comes through `renzora::serde` for the
+# same reason lens_distortion does. Between them this plugin declares nothing
+# third-party, so cargo never runs and the build is one `rustc`.
