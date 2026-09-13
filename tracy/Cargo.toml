@@ -46,4 +46,21 @@ renzora_ember = { path = "../../engine/crates/renzora_ember" }
 # `default-features = false` drops `enable`'s siblings we do not use (call-stack
 # sampling, system tracing) — each costs a background thread and, on Windows,
 # elevated-privilege probing at startup.
-tracy-client = { version = "0.18", default-features = false, features = ["enable", "ondemand"] }
+tracy-client = { version = "=0.18.5", default-features = false, features = ["enable", "ondemand"] }
+# ── Pinned because this version IS the wire protocol ─────────────────────────
+# `tracy-client-sys` vendors the Tracy C++ client, so its version decides which
+# protocol the plugin speaks, and a profiler on any other protocol is refused
+# with "incompatible protocol version" and no further detail.
+#
+# Declared here even though `tracy-client` already depends on it, because
+# pinning `tracy-client` alone does NOT pin this: 0.18.5 asks for
+# `>=0.23.0, <0.30.0`, so cargo takes whatever is newest inside that range. That
+# matters more for a plugin than it would for an application. A plugin is
+# compiled on the machine that INSTALLS it, with no lockfile, so the range is
+# re-resolved per user: two people on the same plugin version can end up
+# speaking different protocols depending on the day they installed, and the only
+# symptom is a profiler that will not connect.
+#
+# 0.29.0 is Tracy 0.14.x. Bump this and the Tracy build users need bumps with it,
+# so treat it as a breaking change to the plugin rather than a routine update.
+tracy-client-sys = "=0.29.0"

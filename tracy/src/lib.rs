@@ -7,6 +7,19 @@
 //!
 //! [Tracy]: https://github.com/wolfpld/tracy
 //!
+//! ## Which Tracy
+//!
+//! **0.14.x**, and it is not a suggestion: Tracy refuses a connection across
+//! protocol versions with "incompatible protocol version" and nothing else to go
+//! on. `Cargo.toml` pins `tracy-client-sys`, which is the crate that vendors the
+//! C++ client and therefore decides the protocol, so the answer is a property of
+//! this plugin's release rather than of the day somebody installed it.
+//!
+//! Connect with the profiler GUI, or capture headlessly:
+//! `tracy-capture -o out.tracy -s 10 -f`, then read the plots back with
+//! `tracy-csvexport -u -p out.tracy`. Plain `tracy-csvexport` reports zones, and
+//! there are none here, which is the next section.
+//!
 //! ## What this is not
 //!
 //! **A flame graph.** There are no CPU zones here and there cannot be. Bevy's
