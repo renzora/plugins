@@ -36,5 +36,5 @@ marketplace_id = "text3d"
 category = "plugins"
 tags = ["rendering", "text", "fonts", "sdf"]
 price_credits = 0
-thumbnail = "thumbnail.jpg"
+thumbnail = "thumbnail.webp"
 min_engine_version = "r1-alpha7"

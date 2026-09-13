@@ -45,5 +45,5 @@ marketplace_id = "ai_chat"
 category = "plugins"
 tags = ["editor", "tools", "ai", "llm", "panel"]
 price_credits = 0
-thumbnail = "thumbnail.jpg"
+thumbnail = "thumbnail.webp"
 min_engine_version = "r1-alpha7"

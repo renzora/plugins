@@ -31,5 +31,5 @@ marketplace_id = "clouds"
 category = "plugins"
 tags = ["rendering", "sky", "weather", "volumetric", "atmosphere"]
 price_credits = 0
-thumbnail = "thumbnail.jpg"
+thumbnail = "thumbnail.webp"
 min_engine_version = "r1-alpha7"

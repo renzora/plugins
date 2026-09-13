@@ -31,5 +31,5 @@ marketplace_id = "spline"
 category = "plugins"
 tags = ["gameplay", "splines", "paths", "procedural"]
 price_credits = 0
-thumbnail = "thumbnail.jpg"
+thumbnail = "thumbnail.webp"
 min_engine_version = "r1-alpha7"

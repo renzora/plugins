@@ -31,5 +31,5 @@ marketplace_id = "auto_exposure"
 category = "plugins"
 tags = ["rendering", "camera", "exposure", "tonemapping"]
 price_credits = 0
-thumbnail = "thumbnail.jpg"
+thumbnail = "thumbnail.webp"
 min_engine_version = "r1-alpha7"

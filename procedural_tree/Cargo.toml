@@ -36,5 +36,5 @@ marketplace_id = "procedural_tree"
 category = "plugins"
 tags = ["rendering", "vegetation", "procedural", "trees"]
 price_credits = 0
-thumbnail = "thumbnail.jpg"
+thumbnail = "thumbnail.webp"
 min_engine_version = "r1-alpha7"
