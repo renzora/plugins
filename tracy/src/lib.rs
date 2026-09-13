@@ -1,8 +1,8 @@
-//! Tracy profiler bridge — a standalone C-ABI plugin.
+//! Tracy profiler bridge.
 //!
 //! Streams the engine's diagnostics to a running [Tracy] profiler over Tracy's
 //! native protocol: one frame mark per app frame, plus every measurement the
-//! host publishes — frame time, FPS, entity count, per-render-pass GPU and CPU
+//! engine publishes — frame time, FPS, entity count, per-render-pass GPU and CPU
 //! times, process CPU and memory — as a named Tracy plot.
 //!
 //! [Tracy]: https://github.com/wolfpld/tracy
@@ -20,22 +20,17 @@
 //! Everything this streams is a *plot*. That is genuinely enough to find a
 //! bottleneck — expand the `render/*/elapsed_gpu` rows and read the maxima — but
 //! it will not tell you which system is eating the frame. For that, build the
-//! engine with `cargo renzora profile`, which compiles the instrumentation in
-//! and moves the plugin ABI as a side effect. Turn this plugin OFF in such a
-//! build: Bevy frame-marks there itself, and two marks per frame halves every
-//! frame time Tracy reports.
+//! engine with `cargo renzora profile`, which compiles the instrumentation in.
+//! Turn this plugin OFF in such a build: Bevy frame-marks there itself, and two
+//! marks per frame halves every frame time Tracy reports.
 //!
 //! ## Why it is a plugin rather than part of the engine
 //!
 //! It used to be `crates/renzora_tracy`, an rlib linked into the editor bundle,
 //! which meant every editor build compiled `tracy-client`'s C sources and
 //! carried the client whether or not anyone ever profiled. Here, deleting the
-//! `.dll` deletes the feature — no listener socket, no C build in the engine
+//! library deletes the feature: no listener socket, no C build in the engine
 //! tree, nothing dormant to reason about.
-//!
-//! The move became possible when the boundary learned to carry measurements
-//! (`SystemCall::diagnostics`, ABI MINOR 4.8). Before that a plugin could not
-//! read `DiagnosticsStore`, so a bridge had to live inside the host.
 //!
 //! ## The dormant state, precisely
 //!
@@ -50,26 +45,19 @@
 //! that arming them for a profiler nobody has connected to would be the more
 //! fragile choice. It costs an idle listener socket and nothing else, because
 //! `ondemand` (see `Cargo.toml`) means the client accumulates no trace data
-//! until a profiler actually attaches. The `renzora_tracy` this replaces claimed
-//! dropping its client resource "tears the connection down and frees the
-//! buffers"; it did neither.
+//! until a profiler actually attaches.
 
-use renzora_plugin::diagnostics::Diagnostics;
-use renzora_plugin::panel::PanelCommands;
-use renzora_plugin::prelude::*;
 use std::collections::HashMap;
-use std::sync::Mutex;
+
+use bevy::diagnostic::DiagnosticsStore;
+use bevy::prelude::*;
+use renzora_ember::font::{ui_font, EmberFonts};
+use renzora_ember::reactive::tracked::bind_2way;
+use renzora_ember::reactive::Rx;
+use renzora_ember::settings_sections::RegisterSettingsSection;
+use renzora_ember::theme::*;
+use renzora_ember::widgets::toggle_switch;
 use tracy_client::{Client, PlotName};
-
-const SETTINGS_ID: &str = "tracy_settings";
-
-/// The master enable toggle.
-const ACT_ENABLE: i32 = 1;
-/// Per-category toggles. `ACT_CATEGORY + i` is the switch for `CATEGORIES[i]`,
-/// so adding a category needs no new constant — and the ids stay stable as long
-/// as [`CATEGORIES`] is only appended to, which is what keeps a saved config
-/// meaning the same thing after an upgrade.
-const ACT_CATEGORY: i32 = 100;
 
 /// A group of diagnostics the user can turn off as a unit.
 ///
@@ -83,6 +71,9 @@ struct Category {
     /// default, silently turning a plot the user had off back on.
     key: &'static str,
     label: &'static str,
+    /// What it covers, shown under the label in Settings. The old markup panel
+    /// had nowhere to put this, so the labels carried it in parentheses.
+    description: &'static str,
     /// Whether a path belongs to this category. Order matters — [`categorise`]
     /// takes the first match, so the specific render predicates must precede
     /// any general one.
@@ -99,31 +90,36 @@ struct Category {
 const CATEGORIES: &[Category] = &[
     Category {
         key: "frame",
-        label: "Frame (fps, frame time)",
+        label: "Frame",
+        description: "FPS, frame time, frame count",
         matches: |p| matches!(p, "fps" | "frame_time" | "frame_count"),
         default: true,
     },
     Category {
         key: "entities",
         label: "Entity count",
+        description: "How many entities the world holds",
         matches: |p| p == "entity_count",
         default: true,
     },
     Category {
         key: "system",
-        label: "CPU & memory",
+        label: "CPU and memory",
+        description: "Process and system-wide usage",
         matches: |p| p.starts_with("system/") || p.starts_with("process/"),
         default: true,
     },
     Category {
         key: "render_gpu",
-        label: "Render passes — GPU time",
+        label: "Render passes, GPU time",
+        description: "Per-pass GPU milliseconds. Usually where a frame goes",
         matches: |p| p.starts_with("render/") && p.ends_with("/elapsed_gpu"),
         default: true,
     },
     Category {
         key: "render_cpu",
-        label: "Render passes — CPU time",
+        label: "Render passes, CPU time",
+        description: "Per-pass CPU milliseconds",
         matches: |p| p.starts_with("render/") && p.ends_with("/elapsed_cpu"),
         default: true,
     },
@@ -136,18 +132,20 @@ const CATEGORIES: &[Category] = &[
     // per-pass and grows with the scene.
     Category {
         key: "invocations",
-        label: "Shader & pipeline counters",
+        label: "Shader and pipeline counters",
+        description: "Raw counts in the millions. Off by default: Tracy autoscales them and they crowd out the timings",
         matches: |p| p.ends_with("_invocations") || p.ends_with("_primitives_out"),
         default: false,
     },
-    // The catch-all, and the reason it exists: the host's diagnostic set is open
-    // — any engine crate or other plugin may register its own path, and several
+    // The catch-all, and the reason it exists: the engine's diagnostic set is
+    // open — any crate or other plugin may register its own path, and several
     // do. Without this they would match no category and a filter built from the
     // list above would silently drop them, which is indistinguishable from the
     // engine having stopped measuring. Anything unrecognised is shown.
     Category {
         key: "other",
         label: "Other diagnostics",
+        description: "Anything a crate or another plugin registers",
         matches: |_| true,
         default: true,
     },
@@ -162,15 +160,14 @@ fn categorise(path: &str) -> usize {
         .unwrap_or(CATEGORIES.len() - 1)
 }
 
-/// Everything the bridge owns, in one lock.
+/// Everything the bridge owns.
 ///
-/// A `static` rather than a plugin resource because the settings action handler
-/// runs on the *editor's* UI systems, not in a plugin system, and so has no
-/// `SystemCall` to reach a resource through. One `Mutex` is the shape `ai_chat`
-/// uses for the same reason.
-static STATE: Mutex<Option<State>> = Mutex::new(None);
-
-struct State {
+/// An ordinary resource. It was a `static Mutex<Option<State>>` under the old
+/// C-ABI, because the settings action handler ran on the editor's UI systems
+/// with no `SystemCall` to reach a plugin resource through. A native plugin's
+/// settings bindings get `&mut World`, so the lock and the `Option` both go.
+#[derive(Resource)]
+struct Tracy {
     /// The user's opt-in, mirrored to disk on every change.
     enabled: bool,
     /// Per-category enables, parallel to [`CATEGORIES`].
@@ -195,19 +192,41 @@ struct State {
     plots: HashMap<String, PlotName>,
 }
 
-fn with<R>(f: impl FnOnce(&mut State) -> R) -> R {
-    let mut guard = STATE.lock().unwrap_or_else(|e| e.into_inner());
-    let state = guard.get_or_insert_with(|| {
-        let cfg = load_config();
-        State {
-            enabled: cfg.0,
-            categories: cfg.1,
+impl Default for Tracy {
+    fn default() -> Self {
+        let (enabled, categories) = load_config();
+        Self {
+            enabled,
+            categories,
             client: None,
             category_of: HashMap::new(),
             plots: HashMap::new(),
         }
-    });
-    f(state)
+    }
+}
+
+impl Tracy {
+    /// Grow the enables to match [`CATEGORIES`], filling with each category's
+    /// OWN default.
+    ///
+    /// A config written before a category was appended leaves the vector short,
+    /// and a switch has already been drawn for it. Blanket `true` was wrong in
+    /// the one direction that matters: it would switch on the counter group,
+    /// whose whole reason for defaulting off is that it buries the millisecond
+    /// timings, and it would do so silently, as a side effect of the user
+    /// touching some unrelated switch.
+    fn grow(&mut self) {
+        while self.categories.len() < CATEGORIES.len() {
+            self.categories.push(CATEGORIES[self.categories.len()].default);
+        }
+    }
+
+    fn category_on(&self, i: usize) -> bool {
+        self.categories
+            .get(i)
+            .copied()
+            .unwrap_or_else(|| CATEGORIES[i].default)
+    }
 }
 
 // ── The bridge ───────────────────────────────────────────────────────────────
@@ -218,79 +237,114 @@ fn with<R>(f: impl FnOnce(&mut State) -> R) -> R {
 /// Runs in `Last` so the diagnostics it reads are this frame's finished numbers
 /// rather than a mix of this frame's and the previous one's, and so the frame
 /// mark lands after everything that contributed to the frame.
-fn pump(diags: Diagnostics) {
-    with(|state| {
-        if !state.enabled {
-            return;
-        }
-        // Started here rather than at init so the toggle can turn profiling ON
-        // without a restart. `Client::start()` is idempotent — it returns a
-        // handle to the running client if there is one — so calling it on the
-        // first enabled frame costs a check thereafter.
-        let client = state.client.get_or_insert_with(Client::start);
+fn pump(mut state: ResMut<Tracy>, diagnostics: Res<DiagnosticsStore>) {
+    if !state.enabled {
+        return;
+    }
+    // Started here rather than at init so the toggle can turn profiling ON
+    // without a restart. `Client::start()` is idempotent — it returns a handle
+    // to the running client if there is one — so calling it on the first enabled
+    // frame costs a check thereafter.
+    if state.client.is_none() {
+        state.client = Some(Client::start());
+    }
 
-        for d in diags.iter() {
-            // NaN is the normal state for a diagnostic that has registered but
-            // not yet been sampled. Tracy will happily accept it and then draw a
-            // plot with a hole in it, which reads as "the engine stopped
-            // measuring" rather than "this had not started yet".
-            if !d.is_valid() {
-                continue;
-            }
-            let category = match state.category_of.get(&d.path) {
-                Some(c) => *c,
-                None => {
-                    let c = categorise(&d.path);
-                    state.category_of.insert(d.path.clone(), c);
-                    c
-                }
-            };
-            // Checked BEFORE the plot name is created. Emitting a value is what
-            // makes a row appear in Tracy, and Tracy's protocol has no message
-            // that removes one — so a category left off never puts a row on the
-            // timeline in the first place, which is the only point at which this
-            // decision can still be made.
-            if !state.categories.get(category).copied().unwrap_or(true) {
-                continue;
-            }
-            let name = match state.plots.get(&d.path) {
-                Some(name) => *name,
-                None => {
-                    let name = PlotName::new_leak(d.path.clone());
-                    state.plots.insert(d.path.clone(), name);
-                    name
-                }
-            };
-            // The smoothed value: raw frame time is noisy enough that a plot of
-            // it is unreadable, and Tracy does its own aggregation on top.
-            client.plot(name, d.smoothed);
+    // Gathered before anything is plotted. Resolving a path's category and plot
+    // name needs `&mut state` (both are memoised) while `plot` needs the client
+    // out of that same state, and collecting first keeps the two borrows apart
+    // without cloning the client per point.
+    let mut points: Vec<(PlotName, f64)> = Vec::new();
+    for diagnostic in diagnostics.iter() {
+        // `None` is the normal state for a diagnostic that has registered but
+        // not yet been sampled. Tracy will happily accept a NaN and then draw a
+        // plot with a hole in it, which reads as "the engine stopped measuring"
+        // rather than "this had not started yet".
+        let Some(value) = diagnostic.smoothed() else {
+            continue;
+        };
+        if !value.is_finite() {
+            continue;
         }
+        let path = diagnostic.path().as_str();
 
-        client.frame_mark();
-    });
+        let category = match state.category_of.get(path) {
+            Some(c) => *c,
+            None => {
+                let c = categorise(path);
+                state.category_of.insert(path.to_string(), c);
+                c
+            }
+        };
+        // Checked BEFORE the plot name is created. Emitting a value is what
+        // makes a row appear in Tracy, and Tracy's protocol has no message that
+        // removes one — so a category left off never puts a row on the timeline
+        // in the first place, which is the only point at which this decision can
+        // still be made.
+        if !state.category_on(category) {
+            continue;
+        }
+        let name = match state.plots.get(path) {
+            Some(name) => *name,
+            None => {
+                let name = PlotName::new_leak(path.to_string());
+                state.plots.insert(path.to_string(), name);
+                name
+            }
+        };
+        points.push((name, value));
+    }
+
+    let Some(client) = state.client.as_ref() else {
+        return;
+    };
+    for (name, value) in points {
+        // The smoothed value: raw frame time is noisy enough that a plot of it
+        // is unreadable, and Tracy does its own aggregation on top.
+        client.plot(name, value);
+    }
+    client.frame_mark();
 }
 
 // ── Settings ─────────────────────────────────────────────────────────────────
 
-fn settings_markup(enabled: bool, categories: &[bool]) -> String {
-    let mut m = String::from(
-        "Node { flex_direction: Column, row_gap: Px(8.0), width: Percent(100.0) }\nChildren [\n",
-    );
-    m.push_str("    Text(\"Enable Tracy\"),\n");
-    m.push_str(&format!(
-        "    ( EmberToggle {{ on: {enabled} }} PanelActionId {{ action: {ACT_ENABLE} }} ),\n"
-    ));
-    m.push_str(
-        "    Text(\"Streams to a running Tracy server on 127.0.0.1:8086. Takes effect \
-         immediately. Plots only \\u{2014} there is no flame graph without a profiling \
-         build.\"),\n",
+/// The Tracy section on the Settings overlay's Plugins tab.
+///
+/// Built once per overlay open. The switches carry two-way bindings, so they
+/// read live state rather than the snapshot this call could take.
+fn build(commands: &mut Commands, fonts: &EmberFonts) -> Entity {
+    let root = commands
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(10.0),
+            ..default()
+        })
+        .id();
+
+    switch_row(
+        commands,
+        fonts,
+        root,
+        "Enable Tracy",
+        "Streams to a running Tracy server on 127.0.0.1:8086. Takes effect immediately. Plots only: there is no flame graph without a profiling build.",
+        |rx| rx.get_resource::<Tracy>().is_some_and(|t| t.enabled),
+        |w, on| {
+            let Some(mut t) = w.get_resource_mut::<Tracy>() else {
+                return;
+            };
+            t.enabled = *on;
+            save_config(t.enabled, &t.categories);
+        },
     );
 
-    // The category switches stay rendered while Tracy is off rather than being
-    // hidden behind it: choosing what to capture before starting a capture is
-    // the normal order, and a settings panel that empties itself when you turn
-    // the feature off is a worse way to say "these do nothing right now".
-    m.push_str("    Text(\"Plots\"),\n");
+    let header = commands
+        .spawn((
+            Text::new("Plots".to_string()),
+            ui_font(&fonts.ui, 12.5),
+            TextColor(rgb(text_primary())),
+            Node { margin: UiRect::top(Val::Px(6.0)), ..default() },
+        ))
+        .id();
     // Says what turning one off does, because the answer is not the obvious one
     // and the difference is visible on screen. Tracy's protocol has no message
     // that removes a plot — the complete set is PlotData{Int,Float,Double},
@@ -298,70 +352,94 @@ fn settings_markup(enabled: bool, categories: &[bool]) -> String {
     // showing a frozen line. Reconnecting drops it, because the on-demand client
     // discards plot data while nothing is attached and replays only GPU
     // contexts, lock names and thread names on connect.
-    m.push_str(
-        "    Text(\"Turning one off stops it immediately. Rows already on Tracy's timeline \
-         stay until you reconnect \\u{2014} its protocol has no way to remove a plot. \
-         Reconnect, or set these before connecting, for a clean capture.\"),\n",
-    );
+    let note = commands
+        .spawn((
+            Text::new(
+                "Turning one off stops it immediately. Rows already on Tracy's timeline stay \
+                 until you reconnect, since its protocol has no way to remove a plot. Reconnect, \
+                 or set these before connecting, for a clean capture."
+                    .to_string(),
+            ),
+            ui_font(&fonts.ui, 9.5),
+            TextColor(rgb(text_muted())),
+        ))
+        .id();
+    commands.entity(root).add_children(&[header, note]);
+
+    // The category switches stay rendered while Tracy is off rather than being
+    // hidden behind it: choosing what to capture before starting a capture is
+    // the normal order, and a settings panel that empties itself when you turn
+    // the feature off is a worse way to say "these do nothing right now".
     for (i, cat) in CATEGORIES.iter().enumerate() {
-        let on = categories.get(i).copied().unwrap_or(cat.default);
-        let label = cat.label;
-        let action = ACT_CATEGORY + i as i32;
-        m.push_str(&format!("    Text(\"{label}\"),\n"));
-        m.push_str(&format!(
-            "    ( EmberToggle {{ on: {on} }} PanelActionId {{ action: {action} }} ),\n"
-        ));
+        switch_row(
+            commands,
+            fonts,
+            root,
+            cat.label,
+            cat.description,
+            move |rx| rx.get_resource::<Tracy>().is_some_and(|t| t.category_on(i)),
+            move |w, on| {
+                let Some(mut t) = w.get_resource_mut::<Tracy>() else {
+                    return;
+                };
+                t.grow();
+                t.categories[i] = *on;
+                save_config(t.enabled, &t.categories);
+            },
+        );
     }
 
-    m.push_str("]\n");
-    m
+    root
 }
 
-/// Handle a toggle — the master switch or one of the category switches.
-///
-/// Runs on the editor's UI systems, where a panic would abort the process — the
-/// host's thunk carries the guard, which is why this can be ordinary code.
-fn on_action(mut action: Action) {
-    let id: i32 = action.name().parse().unwrap_or(0);
-    // A toggle crosses as 0.0 or 1.0 in `value`; there is no separate boolean
-    // channel in the action payload.
-    let on = action.value > 0.5;
+/// One labelled switch, bound both ways to whatever `get` and `set` name.
+fn switch_row(
+    commands: &mut Commands,
+    fonts: &EmberFonts,
+    parent: Entity,
+    label: &str,
+    description: &str,
+    // Read through the `Rx` rather than off the world, so the switch subscribes
+    // to what it displays: a two-way binding whose getter is untracked finds its
+    // data unchanged when the user's edit lands and drops the edit.
+    get: impl for<'w> Fn(&Rx<'w>) -> bool + Send + Sync + 'static,
+    set: impl Fn(&mut World, &bool) + Send + Sync + 'static,
+) {
+    let row = commands
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            flex_direction: FlexDirection::Row,
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(10.0),
+            ..default()
+        })
+        .id();
+    let col = commands
+        .spawn(Node { flex_direction: FlexDirection::Column, flex_grow: 1.0, ..default() })
+        .id();
+    let l = commands
+        .spawn((
+            Text::new(label.to_string()),
+            ui_font(&fonts.ui, 11.5),
+            TextColor(rgb(text_primary())),
+        ))
+        .id();
+    let d = commands
+        .spawn((
+            Text::new(description.to_string()),
+            ui_font(&fonts.ui, 9.5),
+            TextColor(rgb(text_muted())),
+        ))
+        .id();
+    commands.entity(col).add_children(&[l, d]);
 
-    let markup = with(|state| {
-        if id == ACT_ENABLE {
-            state.enabled = on;
-        } else if let Some(i) = (id - ACT_CATEGORY)
-            .try_into()
-            .ok()
-            .filter(|i: &usize| *i < CATEGORIES.len())
-        {
-            // Grown rather than indexed blindly: a config written before a
-            // category was appended leaves the vector short, and this handler is
-            // reachable from a switch the markup has already drawn for it.
-            //
-            // Filled with each category's OWN default, not with `true`. Blanket
-            // `true` was wrong in the one direction that matters: it would switch
-            // on the counter group, whose whole reason for defaulting off is that
-            // it buries the millisecond timings — and it would do so silently,
-            // as a side effect of the user touching some unrelated switch.
-            while state.categories.len() < CATEGORIES.len() {
-                state.categories.push(CATEGORIES[state.categories.len()].default);
-            }
-            state.categories[i] = on;
-        } else {
-            // An id from markup this build did not write. Redrawing on it would
-            // fight whatever did.
-            return None;
-        }
-        save_config(state.enabled, &state.categories);
-        Some(settings_markup(state.enabled, &state.categories))
-    });
+    // `true` is a placeholder: `bind_2way` seeds the widget from `get` before it
+    // is shown, so the value passed here is never what the user sees.
+    let sw = toggle_switch(commands, true);
+    bind_2way::<bool, _, _>(commands, sw, get, set);
 
-    // Redraw so the switches reflect what was persisted rather than only what
-    // the widget animated to — they diverge if the write failed.
-    if let Some(markup) = markup {
-        action.commands.set_panel_content(SETTINGS_ID, &markup);
-    }
+    commands.entity(row).add_children(&[col, sw]);
+    commands.entity(parent).add_child(row);
 }
 
 // ── Persistence ──────────────────────────────────────────────────────────────
@@ -380,10 +458,10 @@ fn config_path() -> Option<std::path::PathBuf> {
 
 /// Read one `"key": true|false` out of the flat config.
 ///
-/// Hand-parsed rather than with serde, because a plugin having zero
-/// dependencies beyond `renzora_plugin` is the design and a handful of booleans
-/// is not worth breaking it for. The file this writes is flat, one key per line,
-/// so finding the key and reading the next word is the whole grammar.
+/// Hand-parsed rather than with serde, because keeping this plugin's
+/// dependencies to the engine plus `tracy-client` is the design and a handful of
+/// booleans is not worth breaking it for. The file this writes is flat, one key
+/// per line, so finding the key and reading the next word is the whole grammar.
 fn read_flag(text: &str, key: &str, default: bool) -> bool {
     let needle = format!("\"{key}\"");
     match text
@@ -439,21 +517,13 @@ pub struct TracyPlugin;
 
 impl Plugin for TracyPlugin {
     fn build(&self, app: &mut App) {
-        let markup = with(|s| settings_markup(s.enabled, &s.categories));
-        app.add_settings_section(
-            Panel::new(
-                SETTINGS_ID,
-                "Tracy Profiler",
-                Scene(Box::leak(markup.into_boxed_str())),
-            )
-            .icon("pulse")
-            .on_action(on_action),
-        )
-        .add_systems(Last, pump);
+        app.init_resource::<Tracy>();
+        app.register_settings_section("tracy", "Tracy Profiler", "pulse", build);
+        app.add_systems(Last, pump);
     }
 }
 
-renzora_plugin::add!(TracyPlugin, Editor);
+renzora::plugin!(TracyPlugin, Editor);
 
 #[cfg(test)]
 mod tests {
@@ -514,35 +584,6 @@ mod tests {
         }
     }
 
-    /// Every toggle must carry an action id, or the section renders switches
-    /// that animate and report nothing.
-    #[test]
-    fn settings_markup_binds_every_toggle() {
-        let cats = vec![true; CATEGORIES.len()];
-        let m = settings_markup(true, &cats);
-        assert!(m.contains(&format!("PanelActionId {{ action: {ACT_ENABLE} }}")));
-        for (i, cat) in CATEGORIES.iter().enumerate() {
-            let action = ACT_CATEGORY + i as i32;
-            assert!(
-                m.contains(&format!("PanelActionId {{ action: {action} }}")),
-                "{} has no action id",
-                cat.key
-            );
-            assert!(m.contains(cat.label), "{} has no label", cat.key);
-        }
-        // The master id must not collide with a category id, or one switch
-        // would drive two settings.
-        assert!(ACT_CATEGORY > ACT_ENABLE);
-    }
-
-    #[test]
-    fn markup_reflects_the_toggle_states() {
-        let cats = vec![false; CATEGORIES.len()];
-        let m = settings_markup(false, &cats);
-        assert!(!m.contains("on: true"), "everything was off");
-        assert!(settings_markup(true, &vec![true; CATEGORIES.len()]).contains("on: true"));
-    }
-
     /// Categorisation is first-match, so the specific render predicates must win
     /// over the catch-all — and each path must land where the label claims.
     #[test]
@@ -571,9 +612,10 @@ mod tests {
         }
     }
 
-    /// An unknown path is SHOWN, not dropped. The host's diagnostic set is open
-    /// — any crate may register a path — and a filter that silently swallowed
-    /// them would be indistinguishable from the engine having stopped measuring.
+    /// An unknown path is SHOWN, not dropped. The engine's diagnostic set is
+    /// open — any crate may register a path — and a filter that silently
+    /// swallowed them would be indistinguishable from the engine having stopped
+    /// measuring.
     #[test]
     fn an_unknown_path_falls_through_to_other() {
         assert_eq!(CATEGORIES[categorise("my_plugin/widgets_drawn")].key, "other");
@@ -581,17 +623,44 @@ mod tests {
     }
 
     /// Growing a short config must use each category's own default. Filling with
-    /// a blanket `true` would switch the counter group on behind the user's back,
-    /// as a side effect of touching some unrelated switch.
+    /// a blanket `true` would switch the counter group on behind the user's
+    /// back, as a side effect of touching some unrelated switch.
+    ///
+    /// Exercises [`Tracy::grow`] itself, which is what the settings bindings
+    /// call. The old version of this test reimplemented the loop and so could
+    /// only ever agree with itself.
     #[test]
     fn growing_a_short_config_uses_defaults() {
-        let mut cats: Vec<bool> = Vec::new();
-        while cats.len() < CATEGORIES.len() {
-            cats.push(CATEGORIES[cats.len()].default);
+        let mut t = Tracy {
+            enabled: true,
+            categories: vec![true],
+            client: None,
+            category_of: HashMap::new(),
+            plots: HashMap::new(),
+        };
+        t.grow();
+        assert_eq!(t.categories.len(), CATEGORIES.len());
+        for (i, cat) in CATEGORIES.iter().enumerate().skip(1) {
+            assert_eq!(t.categories[i], cat.default, "{} grew to the wrong value", cat.key);
         }
-        let expected: Vec<bool> = CATEGORIES.iter().map(|c| c.default).collect();
-        assert_eq!(cats, expected);
-        assert!(!cats[CATEGORIES.iter().position(|c| c.key == "invocations").unwrap()]);
+        assert!(!t.category_on(CATEGORIES.iter().position(|c| c.key == "invocations").unwrap()));
+    }
+
+    /// A category read past the end of a short config takes its default rather
+    /// than panicking or reading as off. The settings switches call this on
+    /// every rebuild, before anything has grown the vector.
+    #[test]
+    fn a_category_past_the_end_reads_its_default() {
+        let t = Tracy {
+            enabled: false,
+            categories: Vec::new(),
+            client: None,
+            category_of: HashMap::new(),
+            plots: HashMap::new(),
+        };
+        for (i, cat) in CATEGORIES.iter().enumerate() {
+            assert_eq!(t.category_on(i), cat.default, "{} read wrong", cat.key);
+        }
     }
 
     /// Category keys are the config's field names, so a duplicate would make one
