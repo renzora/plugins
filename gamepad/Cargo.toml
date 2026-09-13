@@ -11,7 +11,7 @@
 
 [package]
 name = "gamepad"
-version = "0.1.0"
+version = "1.0.1"
 edition = "2021"
 description = "Live gamepad diagnostics — sticks, triggers and buttons per connected pad."
 
@@ -24,3 +24,11 @@ renzora = { path = "../../crates/renzora" }
 renzora_ember = { path = "../../crates/renzora_ember" }
 
 # Nothing third-party, so cargo is never invoked and the build stays offline.
+
+# Marketplace listing (`renzora publish`). Cargo ignores this section.
+[package.metadata.renzora]
+marketplace_id = "gamepad"
+category = "plugins"
+tags = ["editor", "tools", "input", "gamepad", "debug"]
+price_credits = 0
+min_engine_version = "r1-alpha7"

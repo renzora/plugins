@@ -11,8 +11,27 @@ pub struct Rain {
     pub intensity: f32,
     #[field(min = 0.1, max = 5.0, speed = 0.1, default = 1.0)]
     pub speed: f32,
+    /// How big each bead is. The shader turns this into a grid frequency, which
+    /// is its inverse — bigger beads means fewer of them across the screen.
     #[field(min = 1.0, max = 20.0, speed = 0.1, default = 8.0)]
     pub drop_size: f32,
+    /// How much the fall rate varies between columns. 0 makes every bead run
+    /// at exactly `speed`; 1 spreads them from a crawl to nearly double it.
+    ///
+    /// The variation is per column rather than per bead, and has to be: which
+    /// bead a column is on is worked out from how far it has fallen, so the
+    /// rate has to be known before there is a bead to ask about.
+    #[field(min = 0.0, max = 1.0, speed = 0.01, default = 0.5)]
+    pub speed_variation: f32,
+    /// Length of the runnel each bead drags behind it, as a multiple of its own
+    /// size. 0 leaves bare beads.
+    #[field(min = 0.0, max = 1.0, speed = 0.01, default = 0.5)]
+    pub trail: f32,
+    /// How much the glass fogs between the water. 0 leaves it clear; the water
+    /// wipes the fog away wherever it runs, which is most of what makes this
+    /// read as a wet windscreen rather than marks on the picture.
+    #[field(min = 0.0, max = 1.0, speed = 0.01, default = 0.6)]
+    pub fog: f32,
     /// Seconds, advanced by [`sync_time`].
     #[field(skip, default = 0.0)]
     pub time: f32,

@@ -24,3 +24,12 @@ renzora = { path = "../../crates/renzora" }
 # No `serde`: `AutoExposureSettings` moved to the contract crate, which is where
 # its derives live now. Nothing else here is third-party, so cargo is never
 # invoked for this plugin and the build stays offline.
+
+# Marketplace listing (`renzora publish`). Cargo ignores this section.
+[package.metadata.renzora]
+marketplace_id = "auto_exposure"
+category = "plugins"
+tags = ["rendering", "camera", "exposure", "tonemapping"]
+price_credits = 0
+thumbnail = "thumbnail.jpg"
+min_engine_version = "r1-alpha7"

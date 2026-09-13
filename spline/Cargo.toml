@@ -24,3 +24,12 @@ renzora = { path = "../../crates/renzora" }
 # No `serde`: `renzora::serde` is the engine's copy, and a private one would be a
 # different crate from the one `Vec3` implements the traits for. With nothing for
 # cargo to resolve, the build is offline and about a second.
+
+# Marketplace listing (`renzora publish`). Cargo ignores this section.
+[package.metadata.renzora]
+marketplace_id = "spline"
+category = "plugins"
+tags = ["gameplay", "splines", "paths", "procedural"]
+price_credits = 0
+thumbnail = "thumbnail.jpg"
+min_engine_version = "r1-alpha7"

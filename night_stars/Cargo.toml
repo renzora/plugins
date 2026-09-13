@@ -10,7 +10,7 @@
 
 [package]
 name = "night_stars"
-version = "0.1.0"
+version = "1.0.1"
 edition = "2021"
 description = "Night stars — a procedural starfield on a sky dome, faded by sun elevation."
 
@@ -23,3 +23,11 @@ renzora = { path = "../../crates/renzora" }
 
 # No `renzora_lighting`: `Sun` moved to the contract crate, which is the only
 # thing this needed from it. No `serde` either — `NightStarsData` moved too.
+
+# Marketplace listing (`renzora publish`). Cargo ignores this section.
+[package.metadata.renzora]
+marketplace_id = "night_stars"
+category = "plugins"
+tags = ["rendering", "sky", "stars", "atmosphere"]
+price_credits = 0
+min_engine_version = "r1-alpha7"

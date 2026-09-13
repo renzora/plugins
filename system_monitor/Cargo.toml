@@ -11,7 +11,7 @@
 
 [package]
 name = "system_monitor"
-version = "0.1.0"
+version = "1.0.1"
 edition = "2021"
 description = "CPU, RAM, GPU and frame-time readouts in the editor's status bar."
 
@@ -39,3 +39,13 @@ renzora = { path = "../../crates/renzora", features = ["editor"] }
 # only target this is ever compiled for is the host.
 sysinfo = "0.35"
 nvml-wrapper = "0.10"
+
+# Marketplace listing (`renzora publish`). Cargo ignores this section.
+[package.metadata.renzora]
+marketplace_id = "system_monitor"
+category = "plugins"
+name = "System Monitor"
+thumbnail = "thumbnail.jpeg"
+tags = ["editor", "tools", "profiling", "debug", "performance"]
+price_credits = 0
+min_engine_version = "r1-alpha7"

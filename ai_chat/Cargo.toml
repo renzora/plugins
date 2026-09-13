@@ -38,3 +38,12 @@ renzora_ember = { path = "../../crates/renzora_ember" }
 # This is the one thing cargo has to resolve for this plugin, so the first build
 # needs a network; everything after it is cached.
 rfd = "0.15"
+
+# Marketplace listing (`renzora publish`). Cargo ignores this section.
+[package.metadata.renzora]
+marketplace_id = "ai_chat"
+category = "plugins"
+tags = ["editor", "tools", "ai", "llm", "panel"]
+price_credits = 0
+thumbnail = "thumbnail.jpg"
+min_engine_version = "r1-alpha7"

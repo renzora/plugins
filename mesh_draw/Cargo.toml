@@ -26,3 +26,12 @@ renzora = { path = "../../crates/renzora" }
 # tool could be a plugin — those two were the whole of what kept this in the
 # binary. No third-party dependencies either, so cargo is never invoked and the
 # build is offline.
+
+# Marketplace listing (`renzora publish`). Cargo ignores this section.
+[package.metadata.renzora]
+marketplace_id = "mesh_draw"
+category = "plugins"
+tags = ["editor", "tools", "modelling", "mesh", "viewport"]
+price_credits = 0
+thumbnail = "thumbnail.jpg"
+min_engine_version = "r1-alpha7"

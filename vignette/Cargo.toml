@@ -11,7 +11,7 @@
 
 [package]
 name = "vignette"
-version = "0.1.0"
+version = "1.0.1"
 edition = "2021"
 description = "Screen-edge darkening — a thin wrapper around Bevy's built-in Vignette."
 
@@ -28,3 +28,12 @@ renzora = { path = "../../crates/renzora" }
 # one the engine's Bevy was built against, and deriving `Serialize` on a struct
 # holding a `Vec3` then fails to compile. Use `renzora::serde` instead — the
 # contract crate re-exports the engine's copy for exactly this reason.
+
+# Marketplace listing (`renzora publish`). Cargo ignores this section.
+[package.metadata.renzora]
+marketplace_id = "vignette"
+category = "plugins"
+thumbnail = "src/thumbnail.png"
+tags = ["post-processing", "shader", "camera", "vignette"]
+price_credits = 0
+min_engine_version = "r1-alpha7"

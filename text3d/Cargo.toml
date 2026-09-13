@@ -10,7 +10,7 @@
 
 [package]
 name = "text3d"
-version = "0.1.0"
+version = "1.0.1"
 edition = "2021"
 description = "3D text — crisp SDF quads, or real triangulated glyph geometry, optionally extruded."
 
@@ -29,3 +29,12 @@ renzora = { path = "../../crates/renzora" }
 # plugin's `rustc` as extra `--extern`s.
 ttf-parser = "0.25"
 lyon_tessellation = "1.0"
+
+# Marketplace listing (`renzora publish`). Cargo ignores this section.
+[package.metadata.renzora]
+marketplace_id = "text3d"
+category = "plugins"
+tags = ["rendering", "text", "fonts", "sdf"]
+price_credits = 0
+thumbnail = "thumbnail.jpg"
+min_engine_version = "r1-alpha7"

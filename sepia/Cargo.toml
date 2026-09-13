@@ -10,7 +10,7 @@
 
 [package]
 name = "sepia"
-version = "0.1.0"
+version = "1.0.1"
 edition = "2021"
 description = "Sepia tone mapping."
 
@@ -27,3 +27,11 @@ renzora = { path = "../../engine/crates/renzora" }
 # one the engine's Bevy was built against, and deriving `Serialize` on a struct
 # holding a `Vec3` then fails to compile. `#[post_process]` derives against
 # `renzora::serde`, which is the engine's own copy, for exactly that reason.
+
+# Marketplace listing (`renzora publish`). Cargo ignores this section.
+[package.metadata.renzora]
+marketplace_id = "sepia"
+category = "plugins"
+tags = ["post-processing", "shader", "colour", "sepia", "retro"]
+price_credits = 0
+min_engine_version = "r1-alpha7"

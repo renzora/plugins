@@ -22,3 +22,11 @@ crate-type = ["dylib"]
 [dependencies]
 bevy = "0.19"
 renzora = { path = "../../engine/crates/renzora" }
+
+# Marketplace listing (`renzora publish`). Cargo ignores this section.
+[package.metadata.renzora]
+marketplace_id = "matrix"
+category = "plugins"
+tags = ["post-processing", "shader", "matrix", "code-rain", "stylised"]
+price_credits = 0
+min_engine_version = "r1-alpha7"

@@ -24,3 +24,11 @@ renzora = { path = "../../engine/crates/renzora" }
 # No third-party dependencies, so cargo is never invoked and the build is one
 # `rustc`. The script bindings come from `renzora::script_extension`, which is
 # in the contract crate precisely so a plugin can declare script functions.
+
+# Marketplace listing (`renzora publish`). Cargo ignores this section.
+[package.metadata.renzora]
+marketplace_id = "wind"
+category = "plugins"
+tags = ["rendering", "wind", "vegetation", "animation"]
+price_credits = 0
+min_engine_version = "r1-alpha7"

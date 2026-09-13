@@ -1,27 +1,24 @@
-# Native plugin: an ordinary Bevy plugin shipped as source and compiled against
-# the staged SDK on the machine that installs it.
-#
-# ⚠ Do NOT run `cargo build` here. `plugins/` is outside the engine workspace, so
-# cargo would resolve a SECOND Bevy from crates.io and the plugin that came out
-# would have different `TypeId`s from the engine — it would load, run, and
-# corrupt the World. The path dependency below exists so rust-analyzer can
-# resolve `renzora::` while you author; the real build is `cargo renzora`.
-[workspace]
-
+# Generated so Bevy's proc macros can resolve their own crate paths.
+# Nothing runs cargo here; the plugin is compiled by rustc directly
+# against the SDK. Replace this with your own manifest to develop the
+# plugin as an ordinary cargo project — it will not be overwritten.
 [package]
 name = "solari"
 version = "0.1.0"
 edition = "2021"
-description = "Hardware ray-traced global illumination. Wraps Bevy's experimental bevy_solari behind Renzora's effect routing and inspector, gated on GPU ray-tracing support."
 
 [lib]
 crate-type = ["dylib"]
 
 [dependencies]
 bevy = "0.19"
-renzora = { path = "../../engine/crates/renzora" }
+renzora = "*"
 
-# No third-party dependencies, so cargo is never invoked for this plugin and the
-# whole build is one `rustc`. `bevy_solari` is not a dependency either: it
-# reaches through the `bevy` facade as `bevy::solari`, and the SDK stages it
-# because the engine enables the `bevy_solari` feature.
+# Marketplace listing (`renzora publish`). Cargo ignores this section.
+[package.metadata.renzora]
+marketplace_id = "solari"
+category = "plugins"
+description = "Hardware ray-traced global illumination wrapping Bevy's experimental bevy_solari: realtime direct and indirect lighting, fully dynamic, with nothing to bake."
+tags = ["rendering", "lighting", "raytracing", "global-illumination"]
+price_credits = 0
+min_engine_version = "r1-alpha7"

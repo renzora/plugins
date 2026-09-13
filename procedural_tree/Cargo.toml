@@ -10,7 +10,7 @@
 
 [package]
 name = "procedural_tree"
-version = "0.1.0"
+version = "1.0.1"
 edition = "2021"
 description = "Procedurally generated 3D trees — seeded branch/leaf meshes that sway in the world wind."
 
@@ -29,3 +29,12 @@ fastrand = "2.3"
 # No `serde` entry: `renzora::serde` is the engine's copy, and a private one
 # would be a different trait from the one Bevy's `Vec3` implements. Every derive
 # under `src/tree/` carries `#[serde(crate = "renzora::serde")]` to match.
+
+# Marketplace listing (`renzora publish`). Cargo ignores this section.
+[package.metadata.renzora]
+marketplace_id = "procedural_tree"
+category = "plugins"
+tags = ["rendering", "vegetation", "procedural", "trees"]
+price_credits = 0
+thumbnail = "thumbnail.jpg"
+min_engine_version = "r1-alpha7"

@@ -10,7 +10,7 @@
 
 [package]
 name = "letterbox"
-version = "0.1.0"
+version = "1.0.1"
 edition = "2021"
 description = "Letterbox bars post-process effect."
 
@@ -22,3 +22,11 @@ crate-type = ["dylib"]
 [dependencies]
 bevy = "0.19"
 renzora = { path = "../../engine/crates/renzora" }
+
+# Marketplace listing (`renzora publish`). Cargo ignores this section.
+[package.metadata.renzora]
+marketplace_id = "letterbox"
+category = "plugins"
+tags = ["post-processing", "shader", "cinematic", "framing"]
+price_credits = 0
+min_engine_version = "r1-alpha7"

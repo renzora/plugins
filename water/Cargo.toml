@@ -27,3 +27,11 @@ renzora = { path = "../../engine/crates/renzora" }
 # pushed would be invisible to it. serde comes through `renzora::serde` for the
 # same reason lens_distortion does. Between them this plugin declares nothing
 # third-party, so cargo never runs and the build is one `rustc`.
+
+# Marketplace listing (`renzora publish`). Cargo ignores this section.
+[package.metadata.renzora]
+marketplace_id = "water"
+category = "plugins"
+tags = ["rendering", "water", "ocean", "simulation"]
+price_credits = 0
+min_engine_version = "r1-alpha7"

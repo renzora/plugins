@@ -27,3 +27,12 @@ renzora = { path = "../../crates/renzora" }
 # distinct from the one the engine's Bevy derives against. `renzora::serde`
 # re-exports the engine's — and since nothing else here is third-party, cargo is
 # never invoked for this plugin at all, which keeps the build offline.
+
+# Marketplace listing (`renzora publish`). Cargo ignores this section.
+[package.metadata.renzora]
+marketplace_id = "pool_water"
+category = "plugins"
+tags = ["rendering", "water", "caustics", "refraction"]
+price_credits = 0
+thumbnail = "thumbnail.jpg"
+min_engine_version = "r1-alpha7"

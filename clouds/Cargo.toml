@@ -10,7 +10,7 @@
 
 [package]
 name = "clouds"
-version = "0.1.0"
+version = "1.0.1"
 edition = "2021"
 description = "Volumetric clouds raymarched through a spherical deck (HZD/Frostbite model)."
 
@@ -24,3 +24,12 @@ renzora = { path = "../../crates/renzora" }
 # No `serde`: `CloudsData` moved to the contract crate, which is where its
 # derives live now. Nothing else here is third-party, so cargo is never invoked
 # for this plugin and the build stays offline.
+
+# Marketplace listing (`renzora publish`). Cargo ignores this section.
+[package.metadata.renzora]
+marketplace_id = "clouds"
+category = "plugins"
+tags = ["rendering", "sky", "weather", "volumetric", "atmosphere"]
+price_credits = 0
+thumbnail = "thumbnail.jpg"
+min_engine_version = "r1-alpha7"

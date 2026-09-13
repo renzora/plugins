@@ -26,3 +26,11 @@ renzora = { path = "../../engine/crates/renzora" }
 # privately resolved serde is a DIFFERENT crate, so `#[reflect(Serialize)]`
 # would not be satisfied by it. Declaring nothing third-party also means cargo
 # is never invoked here and the whole build is one `rustc`.
+
+# Marketplace listing (`renzora publish`). Cargo ignores this section.
+[package.metadata.renzora]
+marketplace_id = "lens_distortion"
+category = "plugins"
+tags = ["post-processing", "shader", "camera", "lens", "distortion"]
+price_credits = 0
+min_engine_version = "r1-alpha7"
