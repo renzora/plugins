@@ -7,3 +7,10 @@
 # 2.2 MB of actual source.
 build/
 target/
+
+# The receipt the marketplace installer writes beside an installed plugin. It
+# records THAT machine's copy — an asset id, the slug and version it was
+# installed at — so it belongs to an install and not to source. Committed, it
+# hands every clone a pointer to one person's assets, and goes stale the moment
+# a new version is published.
+plugin.toml
