@@ -65,7 +65,7 @@ use std::collections::HashMap;
 use bevy::diagnostic::DiagnosticsStore;
 use bevy::prelude::*;
 use renzora_ember::font::{ui_font, EmberFonts};
-use renzora_ember::reactive::tracked::bind_2way;
+use renzora_ember::reactive::tracked::{bind_2way, bind_text, bind_text_color};
 use renzora_ember::reactive::Rx;
 use renzora_ember::settings_sections::RegisterSettingsSection;
 use renzora_ember::theme::*;
@@ -87,6 +87,14 @@ struct Category {
     /// What it covers, shown under the label in Settings. The old markup panel
     /// had nowhere to put this, so the labels carried it in parentheses.
     description: &'static str,
+    /// Why this category might have nothing feeding it, shown in place of the
+    /// description when nothing does.
+    ///
+    /// Several categories depend on a diagnostic somebody ELSE registers, and a
+    /// switch for a plot that cannot appear is worse than no switch: it reads as
+    /// a broken profiler rather than as a missing prerequisite. `None` means the
+    /// category is fed by the engine itself and should always have something.
+    needs: Option<&'static str>,
     /// Whether a path belongs to this category. Order matters — [`categorise`]
     /// takes the first match, so the specific render predicates must precede
     /// any general one.
@@ -105,6 +113,7 @@ const CATEGORIES: &[Category] = &[
         key: "frame",
         label: "Frame",
         description: "FPS, frame time, frame count",
+        needs: None,
         matches: |p| matches!(p, "fps" | "frame_time" | "frame_count"),
         default: true,
     },
@@ -112,6 +121,7 @@ const CATEGORIES: &[Category] = &[
         key: "entities",
         label: "Entity count",
         description: "How many entities the world holds",
+        needs: Some("Nothing is measuring this. Enable the Debugger plugin, which registers the entity-count diagnostic."),
         matches: |p| p == "entity_count",
         default: true,
     },
@@ -119,6 +129,7 @@ const CATEGORIES: &[Category] = &[
         key: "system",
         label: "CPU and memory",
         description: "Process and system-wide usage",
+        needs: Some("Nothing is measuring this. Enable the Debugger plugin, which registers the CPU and memory diagnostics."),
         matches: |p| p.starts_with("system/") || p.starts_with("process/"),
         default: true,
     },
@@ -126,6 +137,7 @@ const CATEGORIES: &[Category] = &[
         key: "render_gpu",
         label: "Render passes, GPU time",
         description: "Per-pass GPU milliseconds. Usually where a frame goes",
+        needs: Some("Only a profiling build measures this. `cargo renzora profile` adds the render diagnostics."),
         matches: |p| p.starts_with("render/") && p.ends_with("/elapsed_gpu"),
         default: true,
     },
@@ -133,6 +145,7 @@ const CATEGORIES: &[Category] = &[
         key: "render_cpu",
         label: "Render passes, CPU time",
         description: "Per-pass CPU milliseconds",
+        needs: Some("Only a profiling build measures this. `cargo renzora profile` adds the render diagnostics."),
         matches: |p| p.starts_with("render/") && p.ends_with("/elapsed_cpu"),
         default: true,
     },
@@ -147,6 +160,7 @@ const CATEGORIES: &[Category] = &[
         key: "invocations",
         label: "Shader and pipeline counters",
         description: "Raw counts in the millions. Off by default: Tracy autoscales them and they crowd out the timings",
+        needs: Some("Only a profiling build measures this. `cargo renzora profile` adds the render diagnostics."),
         matches: |p| p.ends_with("_invocations") || p.ends_with("_primitives_out"),
         default: false,
     },
@@ -159,10 +173,27 @@ const CATEGORIES: &[Category] = &[
         key: "other",
         label: "Other diagnostics",
         description: "Anything a crate or another plugin registers",
+        needs: None,
         matches: |_| true,
         default: true,
     },
 ];
+
+/// Is anything currently registering a diagnostic in this category?
+///
+/// Asked of the live `DiagnosticsStore` rather than of a list of plugin types,
+/// because it is the honest question and it is immune to load order: a category
+/// is fed if some path falls into it, whoever registered that path and whenever
+/// they got round to it. Checking `is_plugin_added` at our own `build()` would
+/// answer for a moment before the other plugins had loaded.
+///
+/// Re-evaluated by the bindings while the Settings overlay is open, which is
+/// affordable: a few dozen diagnostics against seven predicates, and the binder
+/// compares before it writes, so a steady answer costs no UI work at all.
+fn category_is_fed(rx: &Rx, i: usize) -> bool {
+    rx.get_resource::<DiagnosticsStore>()
+        .is_some_and(|d| d.iter().any(|x| categorise(x.path().as_str()) == i))
+}
 
 /// Which category a path falls into. Always succeeds — the last entry matches
 /// everything.
@@ -340,6 +371,7 @@ fn build(commands: &mut Commands, fonts: &EmberFonts) -> Entity {
         root,
         "Enable Tracy",
         "Streams to a running Tracy server on 127.0.0.1:8086. Takes effect immediately. Plots only: there is no flame graph without a profiling build.",
+        None,
         |rx| rx.get_resource::<Tracy>().is_some_and(|t| t.enabled),
         |w, on| {
             let Some(mut t) = w.get_resource_mut::<Tracy>() else {
@@ -390,6 +422,7 @@ fn build(commands: &mut Commands, fonts: &EmberFonts) -> Entity {
             root,
             cat.label,
             cat.description,
+            Some(i),
             move |rx| rx.get_resource::<Tracy>().is_some_and(|t| t.category_on(i)),
             move |w, on| {
                 let Some(mut t) = w.get_resource_mut::<Tracy>() else {
@@ -406,12 +439,21 @@ fn build(commands: &mut Commands, fonts: &EmberFonts) -> Entity {
 }
 
 /// One labelled switch, bound both ways to whatever `get` and `set` name.
+///
+/// `category` grades the row against what is actually being measured. Given
+/// `Some(i)`, the label dims and the description is replaced by
+/// [`Category::needs`] whenever nothing feeds that category, so a switch that
+/// cannot currently affect anything says why instead of looking broken. It stays
+/// live rather than being disabled or hidden: the setting is still meaningful,
+/// since setting it before connecting is the order that gives a clean capture,
+/// and the row un-dims by itself the moment something starts measuring.
 fn switch_row(
     commands: &mut Commands,
     fonts: &EmberFonts,
     parent: Entity,
     label: &str,
     description: &str,
+    category: Option<usize>,
     // Read through the `Rx` rather than off the world, so the switch subscribes
     // to what it displays: a two-way binding whose getter is untracked finds its
     // data unchanged when the user's edit lands and drops the edit.
@@ -445,6 +487,28 @@ fn switch_row(
         ))
         .id();
     commands.entity(col).add_children(&[l, d]);
+
+    // Only a category can be unavailable, and only one carrying a reason: a
+    // category the engine itself feeds has no `needs` to show and should never
+    // read as missing.
+    if let Some(reason) = category.and_then(|i| CATEGORIES[i].needs) {
+        let i = category.expect("reason came from this index");
+        let normal = description.to_string();
+        bind_text(commands, d, move |rx| {
+            if category_is_fed(rx, i) {
+                normal.clone()
+            } else {
+                reason.to_string()
+            }
+        });
+        bind_text_color(commands, l, move |rx| {
+            if category_is_fed(rx, i) {
+                rgb(text_primary())
+            } else {
+                rgb(text_muted())
+            }
+        });
+    }
 
     // `true` is a placeholder: `bind_2way` seeds the widget from `get` before it
     // is shown, so the value passed here is never what the user sees.
