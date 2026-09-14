@@ -2,7 +2,10 @@
 
 [package]
 name = "lua"
-version = "0.1.0"
+# Ahead of the 1.0.0 already on the listing. A published version is never
+# replaced, so republishing 0.1.0 would be refused, and the manifest had drifted
+# behind what was actually shipped.
+version = "1.0.1"
 edition = "2021"
 description = "Lua scripting for Renzora. Implements the engine's language-backend contract."
 
@@ -15,6 +18,15 @@ description = "Lua scripting for Renzora. Implements the engine's language-backe
 # is a backend written in pure Rust, not any plumbing.
 [package.metadata.renzora]
 unsupported-targets = ["wasm32"]
+# The listing this publishes to. It already exists and already holds this id;
+# naming it here is what makes a publish land on it instead of creating a
+# second listing beside it.
+marketplace_id = "lua"
+category = "plugins"
+name = "Lua"
+thumbnail = "thumbnail.png"
+tags = ["scripting", "lua", "language"]
+price_credits = 0
 # It implements `renzora::ScriptBackend`, which only reached the contract
 # crate (and therefore the plugin SDK) in r1-alpha8.
 min_engine_version = "r1-alpha8"

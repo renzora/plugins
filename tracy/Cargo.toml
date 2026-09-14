@@ -16,6 +16,13 @@ description = "Stream the engine's diagnostics to a running Tracy profiler."
 # connect to from a browser tab in any case.
 [package.metadata.renzora]
 unsupported-targets = ["wasm32"]
+# The listing this publishes to. Claimed once and never changed: it is how a
+# publish finds the existing listing rather than creating a second one.
+marketplace_id = "tracy"
+category = "plugins"
+name = "Tracy Profiler"
+tags = ["profiling", "diagnostics", "performance", "editor"]
+price_credits = 0
 # It reads `DiagnosticsStore` and registers a Settings section, neither of which
 # the r1-alpha7 plugin boundary could carry.
 min_engine_version = "r1-alpha8"

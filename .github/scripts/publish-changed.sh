@@ -76,8 +76,26 @@ for dir in $changed; do
 
     new=$(manifest_version < "$manifest")
     old=""
+    had_id=""
     if [ -n "$base" ]; then
-        old=$(git show "$base:$manifest" 2>/dev/null | manifest_version)
+        base_manifest=$(git show "$base:$manifest" 2>/dev/null)
+        old=$(printf '%s' "$base_manifest" | manifest_version)
+        printf '%s' "$base_manifest" | grep -q 'marketplace_id' && had_id=1
+    fi
+
+    # A directory that did not claim an id before cannot have been published
+    # under one, so its version has nothing to have moved past and the
+    # "bump it to publish" rule does not apply yet.
+    #
+    # Without this, adding `marketplace_id` to a plugin that has never shipped
+    # is skipped for standing still at the version it has always had, and the
+    # only way out is to bump a number nobody has ever seen. That is exactly
+    # backwards: the first publish is the one time the version is not the
+    # release gesture, because claiming the id is.
+    if [ -z "$had_id" ]; then
+        echo "  take   $dir (first publish, v$new)"
+        take="$take $dir"
+        continue
     fi
 
     if [ -n "$old" ] && [ "$old" = "$new" ]; then

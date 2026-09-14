@@ -15,6 +15,26 @@ version = "0.1.0"
 edition = "2021"
 description = "The editor's debug panels and the Debug workspace that arranges them."
 
+[package.metadata.renzora]
+# The listing this publishes to. Claimed once and never changed: it is how a
+# publish finds the existing listing rather than creating a second one.
+marketplace_id = "debugger"
+category = "plugins"
+name = "Debugger"
+tags = ["editor", "debugging", "diagnostics", "profiling"]
+price_credits = 0
+# r1-alpha8 is the engine this has actually been compiled against: the nightly
+# plugin check builds the published set against the current engine, and nothing
+# builds it against r1-alpha7. The APIs it uses (`register_panel_content`,
+# `register_workspace`, the `diagnostics` feature) all existed in r1-alpha7, so
+# this floor is probably stricter than it needs to be.
+#
+# Deliberately the strict way round. Claiming an engine it turns out not to
+# build on produces failed installs; claiming one too new only means r1-alpha7
+# users do not see it yet, and the release can be retargeted from the listing
+# without republishing.
+min_engine_version = "r1-alpha8"
+
 [lib]
 crate-type = ["dylib"]
 
