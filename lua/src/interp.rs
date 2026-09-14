@@ -161,15 +161,22 @@ impl LuaBackend {
         F: FnOnce(&Lua) -> Result<(), String>,
     {
         let generation = self.sync_bindings(ctx);
-        let version = Self::version_of(path);
         let key = (ctx.self_entity_id, path.to_string_lossy().into_owned());
         let mut instances = self.instances.lock().map_err(|e| e.to_string())?;
 
+        // No modification-time check here, deliberately. The engine asks
+        // `needs_reload` on its own schedule and calls `reload`, which evicts, so
+        // an edited script arrives as a MISSING instance rather than a stale one.
+        // Checking again here cost a `stat` syscall per entity per frame to
+        // re-answer a question that had already been asked.
         let stale = match instances.get(&key) {
             None => true,
-            Some(i) => i.source_version != version || i.bindings_generation != generation,
+            Some(i) => i.bindings_generation != generation,
         };
         if stale {
+            // The one place the version is still read: recorded at build time so
+            // `needs_reload` has something to compare against later.
+            let version = Self::version_of(path);
             let source = self
                 .source_of(path)
                 .ok_or_else(|| format!("could not read {}", path.display()))?;
@@ -574,18 +581,13 @@ impl ScriptBackend for LuaBackend {
     }
 }
 
-/// The script's variables as the ordered pairs the VM globals are built from.
+/// The script's variables as the pairs the VM globals are built from.
 ///
-/// `ScriptVariables` is a map, and a map's iteration order is not stable between
-/// runs. Sorted, because these become Lua globals and an unstable order would
-/// make two identical frames differ whenever a prop shadowed another name.
+/// Unsorted: the source is a map, so the names are already unique, and each one
+/// becomes its own Lua global. Nothing downstream reads them in order, so
+/// sorting was per-frame work with no observable effect.
 fn vars_to_pairs(vars: &ScriptVariables) -> Vec<(String, ScriptValue)> {
-    let mut out: Vec<(String, ScriptValue)> = vars
-        .iter_all()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-    out.sort_by(|a, b| a.0.cmp(&b.0));
-    out
+    vars.iter_all().map(|(k, v)| (k.clone(), v.clone())).collect()
 }
 
 /// Build the Lua table an `on_rpc`/`on_ui` hook receives.
