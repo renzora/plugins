@@ -41,7 +41,7 @@ jobs:
       # judged, so a floating version would change what this does without
       # anything here being edited.
       - name: Install the Renzora CLI
-        run: cargo install renzora --version 0.3.0 --locked
+        run: cargo install renzora --version 0.4.0 --locked
 
       # The CLI has no environment variable for the token and no `--token`
       # flag: `credentials::load` reads this file and nothing else, so CI writes
