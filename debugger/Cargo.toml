@@ -11,7 +11,9 @@
 
 [package]
 name = "debugger"
-version = "0.1.0"
+# Ahead of the 1.0.0 already on the listing. It was published before the
+# manifest claimed an id, so the manifest had drifted behind what shipped.
+version = "1.0.1"
 edition = "2021"
 description = "The editor's debug panels and the Debug workspace that arranges them."
 
