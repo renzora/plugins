@@ -2,33 +2,26 @@
 # Publish changed plugins to the marketplace
 # =============================================================================
 #
-# A push to `main` publishes the plugins whose **version changed** in it. A pull
-# request does the same thing with `--dry-run`, so what a merge would publish is
-# visible before it merges rather than after.
+# A push to `main` publishes the plugins whose **version changed** in it. This
+# workflow only ever publishes — the dry run is its own entry, `Dry run`, so
+# the Actions sidebar says which is which and neither can be fired by mistake
+# for the other. Both call the same job, so the dry run predicts this one rather
+# than approximating it.
 #
-# The selection lives in `.github/scripts/publish-changed.sh` rather than inline
-# here, so it can be run by hand against any two commits:
+# The selection lives in `.github/scripts/publish-changed.sh`, which carries the
+# reasoning for why the diff decides what to publish instead of
+# `renzora publish --all`, and can be run by hand against any two commits:
 #
 #   .github/scripts/publish-changed.sh 5ae146d 72b3bfb --dry-run
-#
-# That script carries the reasoning for why the diff decides what to publish
-# instead of `renzora publish --all`.
 name: Publish
 
 on:
   push:
     branches: [main]
-  # Always a dry run. The value of checking a PR is finding a taken id or an
-  # unknown category before it reaches `main`, where the same mistake costs a
-  # version number to correct.
-  pull_request:
-    branches: [main]
+  # No dry-run toggle here on purpose. A manual publish is a deliberate act and
+  # this workflow's name is the whole warning; anyone wanting to look first runs
+  # `Dry run`, which cannot upload at all.
   workflow_dispatch:
-    inputs:
-      dry_run:
-        description: Check without publishing
-        type: boolean
-        default: true
 
 concurrency:
   # Publishing is not idempotent — a version uploads once and can never be
@@ -39,84 +32,7 @@ concurrency:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
-    steps:
-      # Full history: the job compares this commit's manifests against an
-      # earlier one's, and a shallow clone has nothing to compare with.
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      # Pinned. The CLI decides what a publish sends and how a version is
-      # judged, so a floating version would change what this workflow does
-      # without anything here being edited.
-      - name: Install the Renzora CLI
-        run: cargo install renzora --version 0.3.0 --locked
-
-      # The CLI has no environment variable for the token and no `--token`
-      # flag: `credentials::load` reads this file and nothing else, so CI writes
-      # the file that `renzora login` would have written.
-      #
-      # `url` travels with the token on purpose. A token minted on one
-      # deployment is meaningless on another, and keeping them together is what
-      # stops a publish silently pointing at the wrong marketplace.
-      - name: Write marketplace credentials
-        env:
-          TOKEN: ${{ secrets.RENZORA_MARKETPLACE_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ -z "${TOKEN:-}" ]; then
-            echo "::error::RENZORA_MARKETPLACE_TOKEN is not set. Mint one at https://renzora.com/developers"
-            exit 1
-          fi
-          mkdir -p ~/.renzora
-          printf 'url = "https://renzora.com"\ntoken = "%s"\n' "$TOKEN" > ~/.renzora/credentials.toml
-          chmod 600 ~/.renzora/credentials.toml
-          renzora whoami
-
-      # Which two commits to compare, and whether this is for real.
-      #
-      # A pull request is always a dry run whatever the inputs say: the branch
-      # has not merged, so publishing from it would ship a version that `main`
-      # does not contain.
-      - name: Work out what to compare
-        id: plan
-        run: |
-          set -euo pipefail
-          case "${{ github.event_name }}" in
-            pull_request)
-              echo "base=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
-              echo "dry=--dry-run" >> "$GITHUB_OUTPUT"
-              ;;
-            push)
-              base="${{ github.event.before }}"
-              case "$base" in
-                ""|0000000000000000000000000000000000000000)
-                  base=$(git rev-parse HEAD^ 2>/dev/null || echo "")
-                  ;;
-              esac
-              echo "base=$base" >> "$GITHUB_OUTPUT"
-              echo "dry=" >> "$GITHUB_OUTPUT"
-              ;;
-            *)
-              echo "base=$(git rev-parse HEAD^ 2>/dev/null || echo '')" >> "$GITHUB_OUTPUT"
-              if [ "${{ inputs.dry_run }}" = "false" ]; then
-                echo "dry=" >> "$GITHUB_OUTPUT"
-              else
-                echo "dry=--dry-run" >> "$GITHUB_OUTPUT"
-              fi
-              ;;
-          esac
-
-      # Invoked through `bash` rather than executed directly, and that is not
-      # belt-and-braces. This repository is worked on from Windows, where git
-      # runs with `core.fileMode = false` and does not record the executable
-      # bit, so the script landed as 0644 and the first run died with
-      # "Permission denied". The mode is set in the index too, but naming the
-      # interpreter is what stops the next Windows commit from undoing it.
-      - name: Publish what changed
-        run: |
-          bash .github/scripts/publish-changed.sh \
-            "${{ steps.plan.outputs.base }}" \
-            "${{ github.sha }}" \
-            ${{ steps.plan.outputs.dry }}
+    uses: ./.github/workflows/_publish-job.yml
+    with:
+      dry_run: false
+    secrets: inherit

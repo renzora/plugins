@@ -1,0 +1,44 @@
+# =============================================================================
+# Dry run: everything a publish checks, nothing uploaded
+# =============================================================================
+#
+# The one to reach for. Run it from the Actions tab to see exactly what a push
+# would publish, or let it run itself on a pull request.
+#
+# `renzora publish --dry-run` makes every check the real thing makes — the
+# category exists, the engine version is known, the `marketplace_id` is yours
+# and not somebody else's, the version is not one already published — and then
+# stops before uploading. It exits non-zero on anything that would have failed,
+# so a red run here is a publish that would have failed for the same reason.
+#
+# Worth doing on a branch rather than on `main`, because the cost of the same
+# mistake is different in each place. A taken id found here is a one-line edit;
+# found after a push it has already claimed a listing, and a version published
+# by accident can never be replaced.
+name: Dry run
+
+on:
+  # Automatic on a pull request: the point is to see what merging would ship,
+  # while there is still something to change about it.
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "Commit, tag or branch to compare against (blank = previous commit)"
+        type: string
+        required: false
+        default: ""
+
+jobs:
+  check:
+    uses: ./.github/workflows/_publish-job.yml
+    with:
+      dry_run: true
+      # On a pull request this is ignored: the called job falls back to the
+      # event's own base when this is empty, which for a PR is the merge base.
+      base: ${{ inputs.base }}
+    # The dry run needs the token too. Without one it can still package a
+    # directory, but it cannot check it against any listing, so it reports the
+    # checks it had to skip rather than answering the question.
+    secrets: inherit

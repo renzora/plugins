@@ -1,0 +1,99 @@
+# =============================================================================
+# The publish job itself. Called, never run directly.
+# =============================================================================
+#
+# Two entry points share this: `publish.yml`, which ships, and `dry-run.yml`,
+# which never does. They exist as separate entries so the Actions sidebar says
+# which is which and neither can be fired by mistake for the other.
+#
+# The job lives here rather than in both because the dry run's only job is to
+# predict the real one. Two copies of the setup would eventually disagree, and
+# the day they do is the day the dry run stops being worth running.
+#
+# `workflow_call` is its only trigger, so GitHub gives it no "Run workflow"
+# button and it does not clutter the sidebar.
+name: Publish (shared)
+
+on:
+  workflow_call:
+    inputs:
+      dry_run:
+        description: Check everything and upload nothing
+        type: boolean
+        required: true
+      base:
+        description: Commit to compare against. Empty means this commit's parent.
+        type: string
+        required: false
+        default: ""
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      # Full history: the job compares this commit's manifests against an
+      # earlier one's, and a shallow clone has nothing to compare with.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Pinned. The CLI decides what a publish sends and how a version is
+      # judged, so a floating version would change what this does without
+      # anything here being edited.
+      - name: Install the Renzora CLI
+        run: cargo install renzora --version 0.3.0 --locked
+
+      # The CLI has no environment variable for the token and no `--token`
+      # flag: `credentials::load` reads this file and nothing else, so CI writes
+      # the file that `renzora login` would have written.
+      #
+      # `url` travels with the token on purpose. A token minted on one
+      # deployment is meaningless on another, and keeping them together is what
+      # stops a publish silently pointing at the wrong marketplace.
+      #
+      # The dry run needs it too: without a token it can package a directory but
+      # cannot check it against any listing, so it reports which checks it had to
+      # skip instead of answering the question it was asked.
+      - name: Write marketplace credentials
+        env:
+          TOKEN: ${{ secrets.RENZORA_MARKETPLACE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TOKEN:-}" ]; then
+            echo "::error::RENZORA_MARKETPLACE_TOKEN is not set. Mint one at https://renzora.com/developers"
+            exit 1
+          fi
+          mkdir -p ~/.renzora
+          printf 'url = "https://renzora.com"\ntoken = "%s"\n' "$TOKEN" > ~/.renzora/credentials.toml
+          chmod 600 ~/.renzora/credentials.toml
+          renzora whoami
+
+      - name: Work out what to compare
+        id: plan
+        run: |
+          set -euo pipefail
+          base="${{ inputs.base }}"
+          if [ -z "$base" ]; then
+            # A push knows what it replaced. All-zeros is the first push to a
+            # branch, where there is nothing before it.
+            base="${{ github.event.before }}"
+            case "$base" in
+              ""|0000000000000000000000000000000000000000)
+                base=$(git rev-parse HEAD^ 2>/dev/null || echo "")
+                ;;
+            esac
+          fi
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "Comparing ${base:-<no parent>} against ${{ github.sha }}"
+
+      # Through `bash` rather than executed directly. This repository is worked
+      # on from Windows, where git runs with `core.fileMode = false` and does not
+      # record the executable bit, so the script once landed as 0644 and the run
+      # died with "Permission denied". The mode is set in the index as well, but
+      # naming the interpreter is what stops the next Windows commit undoing it.
+      - name: Publish what changed
+        run: |
+          bash .github/scripts/publish-changed.sh \
+            "${{ steps.plan.outputs.base }}" \
+            "${{ github.sha }}" \
+            ${{ inputs.dry_run && '--dry-run' || '' }}
