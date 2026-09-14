@@ -15,7 +15,8 @@
 
 use std::cell::RefCell;
 
-use renzora_plugin::script::{DrawCmd, ScriptCommand};
+use renzora::core::script_bridge::DrawCmd;
+use renzora::ScriptCommand;
 
 thread_local! {
     static COMMANDS: RefCell<Vec<ScriptCommand>> = const { RefCell::new(Vec::new()) };

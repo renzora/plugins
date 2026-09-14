@@ -15,30 +15,37 @@ description = "Lua scripting for Renzora. Implements the engine's language-backe
 # is a backend written in pure Rust, not any plumbing.
 [package.metadata.renzora]
 unsupported-targets = ["wasm32"]
+# It implements `renzora::ScriptBackend`, which only reached the contract
+# crate (and therefore the plugin SDK) in r1-alpha8.
+min_engine_version = "r1-alpha8"
 
+# `dylib`, not `cdylib`. A native plugin links the real Bevy and the real
+# engine crates, so the backend is an ordinary Rust trait impl rather than a
+# function table behind an `extern "C"` entry point.
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["dylib"]
 
 [dependencies]
-# `script` is what makes this a language rather than a gameplay plugin: it adds
-# the command vocabulary, the contexts and the codec, plus the one `Interface`
-# entry a backend registers through.
-renzora_plugin = { path = "../../sdk/plugin-api/renzora_plugin", features = ["script"] }
+bevy = "0.19"
+# The shared types a backend deals in: `ScriptCommand`, `DrawCmd`, `Binding` and
+# the declarative extension registry a backend builds its API from.
+renzora = { path = "../../engine/crates/renzora" }
+# `renzora` alone. The `ScriptBackend` trait, the context and variable types its
+# hooks take, and `get_handler` all live in the contract crate, which is what
+# makes a language implementable by an installed plugin at all: the staged SDK
+# offers `bevy`, `renzora` and `renzora_ember`, and nothing else. The scripting
+# system itself (`renzora_scripting`) is not linked here and does not need to be.
 
 # Vendored so the plugin builds with nothing but a C compiler — no system Lua,
 # no pkg-config, nothing for a plugin author to install. This is the entire
 # reason the interpreter is worth moving out of the engine: mlua's C build now
 # costs only the people who want Lua.
-# `send` makes `Lua` `Send`, which the generated `static` needs. It is not
-# `Sync` even so, which is why the backend keeps its VMs behind a `Mutex`.
+# `send` makes `Lua` `Send`, which a backend registered as a resource needs. It
+# is not `Sync` even so, which is why the backend keeps its VMs behind a
+# `Mutex` and why every hook takes `&self`.
 mlua = { version = "0.10", features = ["lua54", "vendored", "send"] }
 
 # Blueprints are compiled to Lua by the *host* before the source reaches here —
 # `renzora_blueprint` links Bevy and cannot cross the boundary. So this plugin
 # claims the `.blueprint`/`.bp` extensions but only ever sees Lua text.
 serde_json = "1"
-
-[profile.dist]
-inherits = "release"
-opt-level = 2
-strip = "symbols"

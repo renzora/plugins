@@ -19,31 +19,38 @@
 //! |---|---|
 //! | [`interp`] | the interpreter, moved out of the engine largely unchanged |
 //! | [`buffers`] | thread-local command/draw buffers the Lua bindings push into |
-//! | [`host`] | reaching back into the engine for synchronous reads |
 //!
-//! [`Backend`]: renzora_plugin::script::Backend
+//! There used to be a third, `host`, holding a call table in a thread-local so a
+//! Lua `get` could read the world mid-hook. It is gone. That table existed only
+//! because a C-ABI plugin could not reach the engine's own thread-locals, and a
+//! native one calls [`renzora::get_handler`] directly. Its doc-comment
+//! noted the names "deliberately match the engine's old `get_handler::call_*`",
+//! which is what reduced deleting it to a change of import path.
+//!
+//! [`Backend`]: renzora::ScriptBackend
 
-use renzora_plugin::prelude::*;
+use bevy::prelude::*;
+use renzora::AppScriptBackendExt;
 
 mod buffers;
-mod host;
 mod interp;
 
-#[cfg(test)]
-mod tests;
-
-// Emits the `extern "C"` entry point and the state it needs. A macro rather
-// than a generic because the entry point must be a bare function pointer with
-// nowhere to carry state, so it needs a `static` — and a `static` cannot be
-// generic over the backend type.
-renzora_plugin::script_backend!(interp::LuaBackend);
+// `mod tests` is gone. It was 395 lines of C-ABI scaffolding — `sys::ByteSink`,
+// `extern "C"` callbacks, a hand-built `ScriptHostCalls` table — faking a
+// boundary that no longer exists; a native backend calls the engine's
+// `get_handler` thread-locals directly, so there is nothing left to fake.
+//
+// Not re-written in the new shape because nothing can run it: the SDK compiles a
+// plugin's lib only, and `cargo test` inside a plugin directory is the forbidden
+// thing that resolves a fresh Bevy from crates.io. Worth restoring from history
+// once `check_plugins` grows a `--test` mode.
 
 pub struct LuaPlugin;
 
 impl Plugin for LuaPlugin {
     fn build(&self, app: &mut App) {
-        app.add_script_backend(script_backend::desc());
+        app.add_script_backend(interp::LuaBackend::default());
     }
 }
 
-renzora_plugin::add!(LuaPlugin);
+renzora::plugin!(LuaPlugin);

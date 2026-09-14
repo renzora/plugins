@@ -19,17 +19,28 @@
 #![allow(unused_mut, dead_code, unused_variables)]
 
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use bevy::math::{EulerRot, Vec2, Vec3, Vec4};
 use mlua::prelude::*;
 
-use renzora_plugin::script::{
-    ActionValue, Backend, Binding, BindingKind, Ctx, GamepadSnapshot, Hook, ParamKind, PropValue,
-    ScriptCommand, ScriptReply, ScriptRef, ScriptValue, VarDef, GAMEPAD_BUTTON_NAMES,
+use renzora::script_extension::{substitute, Binding, BindingKind, ParamKind};
+use renzora::{
+    get_handler, FileReader, GamepadSnapshot, PropertyValue as PropValue, ScriptActionValue as
+    ActionValue, ScriptBackend, ScriptCommand, ScriptContext, ScriptValue,
+    ScriptVariableDefinition as VarDef, ScriptVariables, GAMEPAD_BUTTON_NAMES,
 };
 
 use crate::buffers::{drain_commands, drain_draws, push_command};
-use crate::host;
+
+/// The engine's synchronous read table, under the name the old plugin-side
+/// shim used.
+///
+/// `mod host` was a thread-local holding a call table that a C-ABI plugin could
+/// not otherwise reach. A native plugin calls the engine's own thread-locals, so
+/// the shim is gone and this alias is what keeps its ~15 call sites unchanged.
+use get_handler as host;
 
 /// Persistent Lua VM for one (entity, script) pair.
 ///
@@ -58,46 +69,125 @@ pub struct LuaBackend {
     /// live behind the generated `static`. It is never contended in practice:
     /// the engine runs scripts from one exclusive system.
     instances: Mutex<HashMap<(u64, String), LuaInstance>>,
+    /// Where `get_available_scripts` looks.
+    scripts_folder: Mutex<PathBuf>,
+    /// Set by the host when scripts live in a `.rpak` rather than on disk.
+    file_reader: Mutex<Option<FileReader>>,
+    /// The engine's declared bindings, pulled from the context rather than
+    /// pushed in. Behind a `Mutex` because every hook takes `&self`.
+    bindings: Mutex<BindingCache>,
+}
+
+/// The binding list a VM was built against, and a counter for noticing it moved.
+#[derive(Default)]
+struct BindingCache {
     bindings: Vec<Binding>,
     /// Bumped whenever `bindings` is replaced, so existing VMs know to rebuild.
-    bindings_generation: u64,
+    generation: u64,
 }
 
 impl LuaBackend {
+    /// The script's source, through the VFS reader when the host set one.
+    ///
+    /// The reader is how a shipped game reads out of its `.rpak`, where there is
+    /// no file to open. Falling back to `std::fs` covers the editor, which runs
+    /// scripts straight off disk.
+    fn source_of(&self, path: &Path) -> Option<String> {
+        if let Ok(reader) = self.file_reader.lock() {
+            if let Some(reader) = reader.as_ref() {
+                if let Some(text) = reader(path) {
+                    return Some(text);
+                }
+            }
+        }
+        std::fs::read_to_string(path).ok()
+    }
+
+    /// What a VM's copy of the source is compared against to notice an edit.
+    ///
+    /// Modification time, not a hash of the text: this runs once per hook per
+    /// entity, and hashing would mean reading the whole file every frame to
+    /// discover that nothing had changed. A `stat` is an inode lookup the OS has
+    /// cached. Unreadable reads as `0`, which simply never invalidates.
+    ///
+    /// The old boundary handed a version down with the source, because the host
+    /// had already read the file. A backend that reads its own source has to
+    /// answer the question itself.
+    fn version_of(path: &Path) -> u64 {
+        std::fs::metadata(path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0)
+    }
+
+    /// Bring the cached binding list up to date with what the engine declares.
+    ///
+    /// Bindings used to be pushed in with `set_bindings`. They are pulled now,
+    /// from [`ScriptContext::extensions`], because the trait's hooks take
+    /// `&self` and there is no longer a moment when the host could hand them
+    /// over. Returns the generation, which a VM stores so it rebuilds when a
+    /// plugin registering new functions changes the API underneath it.
+    ///
+    /// Compared by count rather than by contents: extensions register during
+    /// `App` build and never change afterwards, so the only transition that has
+    /// to be caught is "none yet" to "all of them", on the first hook after
+    /// startup. Comparing every `Binding` each frame would cost more than it
+    /// could ever detect.
+    fn sync_bindings(&self, ctx: &ScriptContext) -> u64 {
+        let Some(extensions) = ctx.extensions() else {
+            return self.bindings.lock().map(|b| b.generation).unwrap_or(0);
+        };
+        let Ok(mut cache) = self.bindings.lock() else {
+            return 0;
+        };
+        if cache.bindings.len() != extensions.bindings().len() {
+            cache.bindings = extensions.bindings().to_vec();
+            cache.generation = cache.generation.wrapping_add(1);
+        }
+        cache.generation
+    }
+
     /// Get or build the VM for this script, then run `invoke` against it.
     fn with_vm<F>(
         &self,
-        script: &ScriptRef,
-        ctx: &Ctx,
-        reply: &mut ScriptReply,
+        path: &Path,
+        ctx: &ScriptContext,
+        vars: &mut ScriptVariables,
         invoke: F,
-    ) -> Result<(), String>
+    ) -> Result<Vec<ScriptCommand>, String>
     where
         F: FnOnce(&Lua) -> Result<(), String>,
     {
-        let key = (script.entity, script.path.to_string());
+        let generation = self.sync_bindings(ctx);
+        let version = Self::version_of(path);
+        let key = (ctx.self_entity_id, path.to_string_lossy().into_owned());
         let mut instances = self.instances.lock().map_err(|e| e.to_string())?;
 
         let stale = match instances.get(&key) {
             None => true,
-            Some(i) => {
-                i.source_version != script.version
-                    || i.bindings_generation != self.bindings_generation
-            }
+            Some(i) => i.source_version != version || i.bindings_generation != generation,
         };
         if stale {
+            let source = self
+                .source_of(path)
+                .ok_or_else(|| format!("could not read {}", path.display()))?;
             let lua = Lua::new();
             register_api(&lua);
-            register_bindings(&lua, &self.bindings);
-            lua.load(script.source)
+            {
+                let cache = self.bindings.lock().map_err(|e| e.to_string())?;
+                register_bindings(&lua, &cache.bindings);
+            }
+            lua.load(&source)
                 .exec()
                 .map_err(|e| format!("Lua error: {e}"))?;
             instances.insert(
                 key.clone(),
                 LuaInstance {
                     lua,
-                    source_version: script.version,
-                    bindings_generation: self.bindings_generation,
+                    source_version: version,
+                    bindings_generation: generation,
                 },
             );
         }
@@ -107,9 +197,11 @@ impl LuaBackend {
             .ok_or_else(|| "Lua instance vanished".to_string())?;
         let lua = &instance.lua;
 
+        let before = vars_to_pairs(vars);
+
         // Per-frame: overwrite the context globals in place, so the cost scales
         // with context size rather than with API surface.
-        set_context_globals(lua, ctx, script.vars);
+        set_context_globals(lua, ctx, &before);
 
         // Drain anything left over so this hook only sees its own output.
         drain_commands();
@@ -117,22 +209,25 @@ impl LuaBackend {
 
         invoke(lua)?;
 
-        reply.vars = read_back_variables(lua, script.vars);
-        reply.commands = drain_commands();
-        reply.draws = drain_draws();
-        Ok(())
+        // Written straight back into the host's map. The old boundary carried
+        // them home on a reply struct; `&mut ScriptVariables` is the same
+        // handoff without the copy.
+        for (name, value) in read_back_variables(lua, &before) {
+            vars.set(name, value);
+        }
+        Ok(drain_commands())
     }
 
     /// Call a hook by name, if the script defines it.
     fn call_hook(
         &self,
-        script: &ScriptRef,
-        ctx: &Ctx,
-        reply: &mut ScriptReply,
+        path: &Path,
+        ctx: &ScriptContext,
+        vars: &mut ScriptVariables,
         hook: &str,
         args: impl IntoLuaMulti,
-    ) -> Result<(), String> {
-        self.with_vm(script, ctx, reply, |lua| {
+    ) -> Result<Vec<ScriptCommand>, String> {
+        self.with_vm(path, ctx, vars, |lua| {
             let globals = lua.globals();
             // A script that does not define the hook is the common case, not an
             // error — most define two of the nine.
@@ -140,7 +235,10 @@ impl LuaBackend {
                 return Ok(());
             };
             func.call::<()>(args).map_err(|e| {
-                let name = script.path.rsplit(['/', '\\']).next().unwrap_or("script");
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("script");
                 format!("{name} {hook}: {e}")
             })
         })
@@ -150,7 +248,9 @@ impl LuaBackend {
     fn read_props(&self, source: &str) -> Vec<VarDef> {
         let lua = Lua::new();
         register_api(&lua);
-        register_bindings(&lua, &self.bindings);
+        if let Ok(cache) = self.bindings.lock() {
+            register_bindings(&lua, &cache.bindings);
+        }
         let mut props = Vec::new();
 
         if lua.load(source).exec().is_err() {
@@ -206,115 +306,267 @@ impl LuaBackend {
     }
 }
 
-impl Backend for LuaBackend {
-    const NAME: &'static str = "Lua";
+impl ScriptBackend for LuaBackend {
+    fn name(&self) -> &str {
+        "Lua"
+    }
+
     // `.blueprint`/`.bp` graphs are compiled to Lua by the host before the
-    // source reaches here — `renzora_blueprint` links Bevy and cannot cross the
-    // boundary — so this backend claims them but only ever sees Lua text.
-    const EXTENSIONS: &'static [&'static str] = &["lua", "blueprint", "bp"];
-
-    fn set_bindings(&mut self, bindings: &[Binding]) {
-        self.bindings = bindings.to_vec();
-        self.bindings_generation = self.bindings_generation.wrapping_add(1);
+    // source reaches here — `renzora_blueprint` links Bevy and this crate does
+    // not — so this backend claims them but only ever sees Lua text.
+    fn extensions(&self) -> &[&str] {
+        &["lua", "blueprint", "bp"]
     }
 
-    fn props(&mut self, script: &ScriptRef) -> Vec<VarDef> {
-        self.read_props(script.source)
-    }
-
-    fn hook(
-        &mut self,
-        script: &ScriptRef,
-        hook: Hook,
-        ctx: &Ctx,
-        reply: &mut ScriptReply,
-    ) -> Result<(), String> {
-        // Host reads are reachable from inside Lua only through a thread-local,
-        // because those functions were registered when the VM was built and the
-        // call table is valid only now. Scoped so it cannot outlive the call.
-        let _guard = host::enter(ctx.host);
-        let name = hook.fn_name();
-        match hook {
-            Hook::Ready | Hook::Update => self.call_hook(script, ctx, reply, name, ()),
-            Hook::Rpc {
-                name: rpc,
-                from,
-                args,
-            } => self.with_vm(script, ctx, reply, |lua| {
-                let globals = lua.globals();
-                let Ok(func) = globals.get::<LuaFunction>("on_rpc") else {
-                    return Ok(());
-                };
-                let table = args_table(lua, args).map_err(|e| e.to_string())?;
-                func.call::<()>((rpc, table, from))
-                    .map_err(|e| format!("on_rpc: {e}"))
-            }),
-            Hook::Ui {
-                name: ui,
-                entity_bits,
-                args,
-            } => self.with_vm(script, ctx, reply, |lua| {
-                let globals = lua.globals();
-                let Ok(func) = globals.get::<LuaFunction>("on_ui") else {
-                    return Ok(());
-                };
-                let table = args_table(lua, args).map_err(|e| e.to_string())?;
-                func.call::<()>((ui, table, entity_bits))
-                    .map_err(|e| format!("on_ui: {e}"))
-            }),
-            Hook::Draw { width, height } => self.with_vm(script, ctx, reply, |lua| {
-                let globals = lua.globals();
-                let Ok(func) = globals.get::<LuaFunction>("on_draw") else {
-                    return Ok(());
-                };
-                let g = build_draw_context(lua, width, height).map_err(|e| e.to_string())?;
-                func.call::<()>(g).map_err(|e| format!("on_draw: {e}"))
-            }),
-            Hook::AnimationEvent {
-                name: ev,
-                entity_bits,
-            } => self.call_hook(script, ctx, reply, name, (ev, entity_bits)),
-            Hook::Http {
-                callback,
-                status,
-                body,
-            } => self.call_hook(script, ctx, reply, name, (callback, status, body)),
-            Hook::PlayerEvent { id, .. } => self.call_hook(script, ctx, reply, name, id),
-            // `fn_name` already picked on_scene_loaded vs on_scene_load_failed,
-            // so the failure case just carries the extra reason argument.
-            Hook::SceneEvent { path, error } => match error {
-                None => self.call_hook(script, ctx, reply, name, path),
-                Some(err) => self.call_hook(script, ctx, reply, name, (path, err)),
-            },
-            Hook::Event { name: ev, args } => self.with_vm(script, ctx, reply, |lua| {
-                let globals = lua.globals();
-                let Ok(func) = globals.get::<LuaFunction>("on_event") else {
-                    return Ok(());
-                };
-                let table = args_table(lua, args).map_err(|e| e.to_string())?;
-                func.call::<()>((ev, table))
-                    .map_err(|e| format!("on_event: {e}"))
-            }),
+    fn set_scripts_folder(&mut self, path: PathBuf) {
+        if let Ok(mut folder) = self.scripts_folder.lock() {
+            *folder = path;
         }
     }
 
-    fn eval(&mut self, expr: &str) -> Result<String, String> {
+    fn set_file_reader(&mut self, reader: FileReader) {
+        if let Ok(mut slot) = self.file_reader.lock() {
+            *slot = Some(reader);
+        }
+    }
+
+    fn get_available_scripts(&self) -> Vec<(String, PathBuf)> {
+        let Ok(folder) = self.scripts_folder.lock() else {
+            return Vec::new();
+        };
+        let Ok(entries) = std::fs::read_dir(&*folder) else {
+            return Vec::new();
+        };
+        let mut out: Vec<(String, PathBuf)> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|e| self.extensions().contains(&e))
+            })
+            .filter_map(|p| Some((p.file_name()?.to_str()?.to_string(), p)))
+            .collect();
+        // Stable order, so the picker does not reshuffle between launches.
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
+    }
+
+    fn get_script_props(&self, path: &Path) -> Vec<VarDef> {
+        match self.source_of(path) {
+            Some(source) => self.read_props(&source),
+            None => Vec::new(),
+        }
+    }
+
+    /// Whether any VM built for `path` was built from older text.
+    ///
+    /// Answered from the same modification time [`with_vm`] gates on, so the
+    /// engine's question and the rebuild it triggers cannot disagree. No VM yet
+    /// is not a reload: the first hook builds one anyway.
+    fn needs_reload(&self, path: &Path) -> bool {
+        let version = Self::version_of(path);
+        let key = path.to_string_lossy().into_owned();
+        self.instances
+            .lock()
+            .map(|i| {
+                i.iter()
+                    .any(|((_, p), inst)| *p == key && inst.source_version != version)
+            })
+            .unwrap_or(false)
+    }
+
+    fn call_on_ready(
+        &self,
+        path: &Path,
+        ctx: &mut ScriptContext,
+        vars: &mut ScriptVariables,
+    ) -> Result<Vec<ScriptCommand>, String> {
+        self.call_hook(path, ctx, vars, "on_ready", ())
+    }
+
+    fn call_on_update(
+        &self,
+        path: &Path,
+        ctx: &mut ScriptContext,
+        vars: &mut ScriptVariables,
+    ) -> Result<Vec<ScriptCommand>, String> {
+        self.call_hook(path, ctx, vars, "on_update", ())
+    }
+
+    fn call_on_rpc(
+        &self,
+        path: &Path,
+        rpc_name: &str,
+        args: &std::collections::HashMap<String, ActionValue>,
+        from: u64,
+        ctx: &mut ScriptContext,
+        vars: &mut ScriptVariables,
+    ) -> Result<Vec<ScriptCommand>, String> {
+        self.with_vm(path, ctx, vars, |lua| {
+            let globals = lua.globals();
+            let Ok(func) = globals.get::<LuaFunction>("on_rpc") else {
+                return Ok(());
+            };
+            let table = args_table(lua, args).map_err(|e| e.to_string())?;
+            func.call::<()>((rpc_name, table, from))
+                .map_err(|e| format!("on_rpc: {e}"))
+        })
+    }
+
+    fn call_on_ui(
+        &self,
+        path: &Path,
+        name: &str,
+        args: &std::collections::HashMap<String, ActionValue>,
+        entity_bits: u64,
+        ctx: &mut ScriptContext,
+        vars: &mut ScriptVariables,
+    ) -> Result<Vec<ScriptCommand>, String> {
+        self.with_vm(path, ctx, vars, |lua| {
+            let globals = lua.globals();
+            let Ok(func) = globals.get::<LuaFunction>("on_ui") else {
+                return Ok(());
+            };
+            let table = args_table(lua, args).map_err(|e| e.to_string())?;
+            func.call::<()>((name, table, entity_bits))
+                .map_err(|e| format!("on_ui: {e}"))
+        })
+    }
+
+    /// The one hook whose output is not commands.
+    ///
+    /// `on_draw` feeds the 2D vector renderer, which reconciles a whole list
+    /// every frame rather than applying commands once, so the draws are drained
+    /// here and whatever commands the script also issued are dropped on purpose:
+    /// the trait has nowhere to return both.
+    fn call_on_draw(
+        &self,
+        path: &Path,
+        width: f32,
+        height: f32,
+        ctx: &mut ScriptContext,
+        vars: &mut ScriptVariables,
+    ) -> Result<Vec<renzora::DrawCmd>, String> {
+        self.with_vm(path, ctx, vars, |lua| {
+            let globals = lua.globals();
+            let Ok(func) = globals.get::<LuaFunction>("on_draw") else {
+                return Ok(());
+            };
+            let g = build_draw_context(lua, width, height).map_err(|e| e.to_string())?;
+            func.call::<()>(g).map_err(|e| format!("on_draw: {e}"))
+        })?;
+        Ok(drain_draws())
+    }
+
+    fn call_on_animation_event(
+        &self,
+        path: &Path,
+        name: &str,
+        entity_bits: u64,
+        ctx: &mut ScriptContext,
+        vars: &mut ScriptVariables,
+    ) -> Result<Vec<ScriptCommand>, String> {
+        self.call_hook(path, ctx, vars, "on_animation_event", (name, entity_bits))
+    }
+
+    fn call_on_http(
+        &self,
+        path: &Path,
+        callback: &str,
+        status: u16,
+        body: &str,
+        ctx: &mut ScriptContext,
+        vars: &mut ScriptVariables,
+    ) -> Result<Vec<ScriptCommand>, String> {
+        self.call_hook(path, ctx, vars, "on_http", (callback, status, body))
+    }
+
+    /// Joined and left are separate Lua functions, which is why the boolean
+    /// picks the name rather than becoming an argument.
+    fn call_on_player_event(
+        &self,
+        path: &Path,
+        id: u64,
+        joined: bool,
+        ctx: &mut ScriptContext,
+        vars: &mut ScriptVariables,
+    ) -> Result<Vec<ScriptCommand>, String> {
+        let hook = if joined {
+            "on_player_joined"
+        } else {
+            "on_player_left"
+        };
+        self.call_hook(path, ctx, vars, hook, id)
+    }
+
+    /// As above: the failure case is its own function, and carries the reason.
+    fn call_on_scene_event(
+        &self,
+        path: &Path,
+        scene: &str,
+        error: Option<&str>,
+        ctx: &mut ScriptContext,
+        vars: &mut ScriptVariables,
+    ) -> Result<Vec<ScriptCommand>, String> {
+        match error {
+            None => self.call_hook(path, ctx, vars, "on_scene_loaded", scene),
+            Some(err) => {
+                self.call_hook(path, ctx, vars, "on_scene_load_failed", (scene, err))
+            }
+        }
+    }
+
+    fn call_on_event(
+        &self,
+        path: &Path,
+        name: &str,
+        args: &std::collections::HashMap<String, ActionValue>,
+        ctx: &mut ScriptContext,
+        vars: &mut ScriptVariables,
+    ) -> Result<Vec<ScriptCommand>, String> {
+        self.with_vm(path, ctx, vars, |lua| {
+            let globals = lua.globals();
+            let Ok(func) = globals.get::<LuaFunction>("on_event") else {
+                return Ok(());
+            };
+            let table = args_table(lua, args).map_err(|e| e.to_string())?;
+            func.call::<()>((name, table))
+                .map_err(|e| format!("on_event: {e}"))
+        })
+    }
+
+    fn eval_expression(&self, expr: &str) -> Result<String, String> {
         let lua = Lua::new();
         register_api(&lua);
-        register_bindings(&lua, &self.bindings);
+        if let Ok(cache) = self.bindings.lock() {
+            register_bindings(&lua, &cache.bindings);
+        }
         match lua.load(expr).eval::<LuaValue>() {
             Ok(v) => Ok(lua_value_to_string(&v)),
             Err(e) => Err(format!("{e}")),
         }
     }
 
+    /// Drop every VM built from `path`, so the next hook compiles it again.
+    ///
+    /// Forgetting rather than rebuilding: a VM is built lazily by the first hook
+    /// that needs one, and compiling here would pay for entities that may never
+    /// run again. `Ok` unconditionally, because "nothing was cached" and "it was,
+    /// and now is not" are the same outcome to the caller.
+    fn reload(&self, path: &Path) -> Result<(), String> {
+        self.evict(path, 0);
+        Ok(())
+    }
+
     /// Drop cached VMs. An empty `path` means any script, and a zero `entity`
     /// means any entity, so a despawn sends `("", bits)` and a detached script
     /// sends `(path, bits)`.
-    fn evict(&mut self, path: &str, entity: u64) {
+    fn evict(&self, path: &Path, entity: u64) {
+        let path = path.to_string_lossy();
         if let Ok(mut instances) = self.instances.lock() {
             instances.retain(|(eid, p), _| {
-                let path_matches = path.is_empty() || p == path;
+                let path_matches = path.is_empty() || p.as_str() == path;
                 let entity_matches = entity == 0 || *eid == entity;
                 !(path_matches && entity_matches)
             });
@@ -322,8 +574,25 @@ impl Backend for LuaBackend {
     }
 }
 
+/// The script's variables as the ordered pairs the VM globals are built from.
+///
+/// `ScriptVariables` is a map, and a map's iteration order is not stable between
+/// runs. Sorted, because these become Lua globals and an unstable order would
+/// make two identical frames differ whenever a prop shadowed another name.
+fn vars_to_pairs(vars: &ScriptVariables) -> Vec<(String, ScriptValue)> {
+    let mut out: Vec<(String, ScriptValue)> = vars
+        .iter_all()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
 /// Build the Lua table an `on_rpc`/`on_ui` hook receives.
-fn args_table(lua: &Lua, args: &[(String, ActionValue)]) -> LuaResult<LuaTable> {
+fn args_table(
+    lua: &Lua,
+    args: &std::collections::HashMap<String, ActionValue>,
+) -> LuaResult<LuaTable> {
     let table = lua.create_table()?;
     for (k, v) in args {
         table.set(k.as_str(), action_value_to_lua(lua, v)?)?;
@@ -359,7 +628,7 @@ fn parse_hex(s: &str) -> [f32; 4] {
 /// with dot syntax (`g.arc(...)`, not `g:arc(...)`) — the functions take no `self`.
 /// Colours are `#hex` strings; the trailing thickness arg is optional.
 fn build_draw_context(lua: &Lua, width: f32, height: f32) -> mlua::Result<mlua::Table> {
-    use renzora_plugin::script::DrawCmd;
+    use renzora::core::script_bridge::DrawCmd;
     let g = lua.create_table()?;
     g.set("width", width)?;
     g.set("height", height)?;
@@ -519,7 +788,7 @@ fn register_bindings(lua: &Lua, bindings: &[Binding]) {
             }
             // A binding that will not build is one missing script function, not
             // a reason to abandon the rest of them.
-            Err(e) => renzora_plugin::warn!(
+            Err(e) => bevy::log::warn!(
                 "[Scripting] could not build binding `{}`: {}",
                 b.name,
                 e
@@ -601,8 +870,8 @@ fn read_fn(lua: &Lua, b: &Binding, component: &str, field: &str) -> LuaResult<Lu
         let subs: Vec<String> = (0..params.len().max(args.len()))
             .map(|i| arg_string(args.get(i)))
             .collect();
-        let component = renzora_plugin::script::substitute(&component, &subs);
-        let field = renzora_plugin::script::substitute(&field, &subs);
+        let component = substitute(&component, &subs);
+        let field = substitute(&field, &subs);
         match host::call_get(None, &component, &field) {
             Some(v) => property_value_to_lua_result(lua, v),
             None => Ok(LuaValue::Nil),
@@ -612,7 +881,7 @@ fn read_fn(lua: &Lua, b: &Binding, component: &str, field: &str) -> LuaResult<Lu
 
 /// Look a key up in the localization table.
 fn translate_fn(lua: &Lua) -> LuaResult<LuaFunction> {
-    lua.create_function(|_, key: String| Ok(host::translate(&key)))
+    lua.create_function(|_, key: String| Ok(renzora::lang::t(&key)))
 }
 
 /// Every global a script can call, grouped by what it touches.
@@ -1850,7 +2119,7 @@ fn asset_progress(lua: &Lua, globals: &LuaTable) {
     let _ = globals.set(
         "scene_load_state",
         lua.create_function(|lua, ()| {
-            let Some(snapshot) = host::call_scene_load_state() else {
+            let Some(snapshot) = host::call_scene_load() else {
                 return Ok(LuaValue::Nil);
             };
             let t = lua.create_table()?;
@@ -1951,10 +2220,18 @@ fn register_fn1(lua: &Lua, globals: &LuaTable, name: &str, f: fn(f32)) {
 // Context marshalling
 // =============================================================================
 
-fn set_context_globals(lua: &Lua, ctx: &Ctx, vars: &[(String, ScriptValue)]) {
+fn set_context_globals(lua: &Lua, ctx: &ScriptContext, vars: &[(String, ScriptValue)]) {
     let g = lua.globals();
-    let frame = ctx.frame;
-    let ent = ctx.entity;
+    // `Ctx` nested the per-frame state under `.frame` and the entity's transform
+    // under `.entity`; `ScriptContext` is flat. Aliased rather than rewritten at
+    // all ~60 call sites below, which would be churn for nothing.
+    let frame = ctx;
+    let ent = ctx;
+    // The transform carries a `Quat` now, where the boundary carried the euler
+    // angles it had already decomposed. `XYZ` so the array order below still
+    // means what its indices say.
+    let (rot_x, rot_y, rot_z) = ctx.transform.rotation.to_euler(EulerRot::XYZ);
+    let rotation_euler = [rot_x, rot_y, rot_z];
 
     // Time
     let _ = g.set("delta", frame.time.delta as f64);
@@ -1963,15 +2240,15 @@ fn set_context_globals(lua: &Lua, ctx: &Ctx, vars: &[(String, ScriptValue)]) {
     // Transform. Rotation comes over as degrees already — see the note on
     // `EntityContext::rotation_euler` for why the engine converts rather than
     // each language plugin.
-    let _ = g.set("position_x", ent.position[0] as f64);
-    let _ = g.set("position_y", ent.position[1] as f64);
-    let _ = g.set("position_z", ent.position[2] as f64);
-    let _ = g.set("rotation_x", ent.rotation_euler[0] as f64);
-    let _ = g.set("rotation_y", ent.rotation_euler[1] as f64);
-    let _ = g.set("rotation_z", ent.rotation_euler[2] as f64);
-    let _ = g.set("scale_x", ent.scale[0] as f64);
-    let _ = g.set("scale_y", ent.scale[1] as f64);
-    let _ = g.set("scale_z", ent.scale[2] as f64);
+    let _ = g.set("position_x", ent.transform.position[0] as f64);
+    let _ = g.set("position_y", ent.transform.position[1] as f64);
+    let _ = g.set("position_z", ent.transform.position[2] as f64);
+    let _ = g.set("rotation_x", rotation_euler[0] as f64);
+    let _ = g.set("rotation_y", rotation_euler[1] as f64);
+    let _ = g.set("rotation_z", rotation_euler[2] as f64);
+    let _ = g.set("scale_x", ent.transform.scale[0] as f64);
+    let _ = g.set("scale_y", ent.transform.scale[1] as f64);
+    let _ = g.set("scale_z", ent.transform.scale[2] as f64);
 
     // Input
     let _ = g.set("input_x", frame.input_movement[0] as f64);
@@ -2054,8 +2331,8 @@ fn set_context_globals(lua: &Lua, ctx: &Ctx, vars: &[(String, ScriptValue)]) {
     }
 
     // Entity
-    let _ = g.set("self_entity_id", ent.entity_id as i64);
-    let _ = g.set("self_entity_name", ent.name.clone());
+    let _ = g.set("self_entity_id", ent.self_entity_id as i64);
+    let _ = g.set("self_entity_name", ent.self_entity_name.clone());
 
     // Network status (read via net_is_server() / net_is_connected() / etc.)
     let _ = g.set("_net_is_server", frame.net_is_server);
@@ -2065,10 +2342,14 @@ fn set_context_globals(lua: &Lua, ctx: &Ctx, vars: &[(String, ScriptValue)]) {
     // Keyboard maps. The boundary carries only the keys that are down, so a
     // lookup that misses reads `nil` — which is falsey in Lua, exactly as the
     // `false` entries the old dense map carried were.
-    let set_flags = |name: &str, names: &[String]| {
+    // The boundary passed a LIST of what was down, so every listed key was set
+    // `true`. `ScriptContext` carries the flag itself, so the value goes through
+    // instead. A key that is present and false reads the same as absent from
+    // Lua, both being falsy, so no script sees a difference.
+    let set_flags = |name: &str, flags: &std::collections::HashMap<String, bool>| {
         if let Ok(t) = lua.create_table() {
-            for k in names {
-                let _ = t.set(k.as_str(), true);
+            for (k, v) in flags {
+                let _ = t.set(k.as_str(), *v);
             }
             let _ = g.set(name, t);
         }
@@ -2079,9 +2360,9 @@ fn set_context_globals(lua: &Lua, ctx: &Ctx, vars: &[(String, ScriptValue)]) {
 
     // Action-based input (InputMap). Exposed as _action_* tables keyed by
     // action name; Lua side reads via `input_button_pressed("jump")` etc.
-    set_flags("_action_pressed", &frame.actions_pressed);
-    set_flags("_action_just_pressed", &frame.actions_just_pressed);
-    set_flags("_action_just_released", &frame.actions_just_released);
+    set_flags("_action_pressed", &frame.action_pressed);
+    set_flags("_action_just_pressed", &frame.action_just_pressed);
+    set_flags("_action_just_released", &frame.action_just_released);
     if let Ok(t) = lua.create_table() {
         for (k, v) in &frame.action_axis_1d {
             let _ = t.set(k.as_str(), *v as f64);
@@ -2111,8 +2392,8 @@ fn set_context_globals(lua: &Lua, ctx: &Ctx, vars: &[(String, ScriptValue)]) {
     }
 
     // Health
-    let _ = g.set("self_health", ent.health as f64);
-    let _ = g.set("self_max_health", ent.max_health as f64);
+    let _ = g.set("self_health", ent.self_health as f64);
+    let _ = g.set("self_max_health", ent.self_max_health as f64);
 
     // Parent
     let _ = g.set("has_parent", ent.has_parent);
@@ -2269,9 +2550,9 @@ fn lua_to_script_value(value: &LuaValue) -> Option<ScriptValue> {
         // The only target enum that can carry every shape, so this is a straight
         // mapping — the other two below have to degrade.
         LuaValue::Table(t) => match classify_table(t)? {
-            TableShape::Vec2(v) => Some(ScriptValue::Vec2(v)),
-            TableShape::Vec3(v) => Some(ScriptValue::Vec3(v)),
-            TableShape::Color(v) => Some(ScriptValue::Color(v)),
+            TableShape::Vec2(v) => Some(ScriptValue::Vec2(Vec2::from_array(v))),
+            TableShape::Vec3(v) => Some(ScriptValue::Vec3(Vec3::from_array(v))),
+            TableShape::Color(v) => Some(ScriptValue::Color(Vec4::from_array(v))),
         },
         _ => None,
     }
@@ -2313,7 +2594,7 @@ fn parse_component_path(path: &str) -> Option<(String, String)> {
 /// i.e. a plugin ABI bump — so it is deliberately not done here. The promotion
 /// at least lands `x`/`y` on a `Vec3` field instead of failing outright.
 fn lua_to_property_value(value: &LuaValue) -> Option<PropValue> {
-    use renzora_plugin::script::PropValue as PropertyValue;
+    use renzora::PropertyValue;
     match value {
         LuaValue::Number(n) => Some(PropertyValue::Float(*n as f32)),
         LuaValue::Integer(n) => Some(PropertyValue::Int(*n)),
@@ -2335,7 +2616,7 @@ fn property_value_to_lua_result(
     lua: &Lua,
     value: PropValue,
 ) -> LuaResult<LuaValue> {
-    use renzora_plugin::script::PropValue as PropertyValue;
+    use renzora::PropertyValue;
     match value {
         PropertyValue::Float(v) => Ok(LuaValue::Number(v as f64)),
         PropertyValue::Int(v) => Ok(LuaValue::Integer(v)),
