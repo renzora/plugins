@@ -1,0 +1,168 @@
+# =============================================================================
+# Publish changed plugins to the marketplace
+# =============================================================================
+#
+# A push to `main` publishes the plugins whose **version changed** in that push.
+#
+# ── Why not just `renzora publish --all` ────────────────────────────────────
+# Because it would fail on the second push and every push after it. A published
+# version is never replaced: the CLI's `check_version` refuses a version that
+# already exists, and a batch run refuses *entirely* if any directory in it is
+# unfit. `--all` sweeps all 73 plugins, of which a given push changes one or
+# two, so the other 71 would each be "v1.0.1 has already been published" and the
+# run would stop before uploading anything.
+#
+# That is the CLI being right rather than awkward. So the decision about what to
+# publish is made here, from the diff, and the CLI is only ever handed
+# directories that have something new to say.
+#
+# ── What counts as a change ─────────────────────────────────────────────────
+# The version in the manifest, not the files. Editing a plugin without bumping
+# it is a normal thing to do mid-development, and publishing on every commit
+# would burn a version number per commit. A directory whose files changed but
+# whose version did not is reported and skipped, so the run says why nothing
+# shipped instead of looking like it did nothing.
+#
+# ── What this does NOT check ────────────────────────────────────────────────
+# Whether the plugin still COMPILES. That needs a staged SDK, which needs an
+# engine build, which is hours. The engine's own nightly already builds every
+# plugin here against the SDK it just staged, on all six desktop platforms, and
+# reports in its job summary. This job would be a worse copy of that check and a
+# much slower one.
+name: Publish
+
+on:
+  push:
+    branches: [main]
+  # Manual runs default to a dry run, which makes every check the real thing
+  # makes and uploads nothing. The way to see what a push *would* do.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Check without publishing
+        type: boolean
+        default: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      # Full history: the job compares this commit's manifests against the
+      # previous one's, and a shallow clone has nothing to compare with.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Pinned. The CLI decides what a publish sends and how a version is
+      # judged, so a floating version would change what this workflow does
+      # without anything here being edited.
+      - name: Install the Renzora CLI
+        run: cargo install renzora --version 0.3.0 --locked
+
+      # The CLI has no environment variable for the token and no `--token`
+      # flag: `credentials::load` reads this file and nothing else. So CI
+      # writes the file the same shape `renzora login` would.
+      #
+      # `url` travels with the token on purpose — a token minted on one
+      # deployment is meaningless on another, and the CLI keeps them together so
+      # publishing cannot silently point at the wrong marketplace.
+      - name: Write marketplace credentials
+        env:
+          TOKEN: ${{ secrets.RENZORA_MARKETPLACE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TOKEN:-}" ]; then
+            echo "::error::RENZORA_MARKETPLACE_TOKEN is not set. Mint one at https://renzora.com/developers"
+            exit 1
+          fi
+          mkdir -p ~/.renzora
+          printf 'url = "https://renzora.com"\ntoken = "%s"\n' "$TOKEN" > ~/.renzora/credentials.toml
+          chmod 600 ~/.renzora/credentials.toml
+          renzora whoami
+
+      - name: Publish what changed
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -uo pipefail
+
+          # `github.event.before` is all-zeros for the first push to a branch,
+          # and absent entirely on a manual run. Fall back to this commit's
+          # parent, which is the same question asked a different way.
+          base="${{ github.event.before }}"
+          case "$base" in
+            ""|0000000000000000000000000000000000000000)
+              base=$(git rev-parse HEAD^ 2>/dev/null || echo "")
+              ;;
+          esac
+
+          # The manifest is a plugin's `Cargo.toml`, or a `renzora.toml` for a
+          # directory with no crate. `[workspace]` comes first in these files
+          # and `[package]` second, so the first bare `version =` is the
+          # package's. `[package.metadata.renzora]` has no `version` key.
+          manifest_version() {
+            sed -n 's/^version *= *"\([^"]*\)".*/\1/p' 2>/dev/null | head -1
+          }
+
+          if [ -n "$base" ]; then
+            changed=$(git diff --name-only "$base" "${{ github.sha }}" \
+                      | cut -d/ -f1 | sort -u)
+          else
+            # No parent at all: treat every plugin as a candidate and let the
+            # version check below decide. This is the very first push.
+            changed=$(ls -d */ 2>/dev/null | tr -d '/')
+          fi
+
+          to_publish=""
+          for dir in $changed; do
+            [ -d "$dir" ] || continue          # deleted, or a top-level file
+            manifest=""
+            for m in "$dir/Cargo.toml" "$dir/renzora.toml"; do
+              [ -f "$m" ] && manifest="$m" && break
+            done
+            [ -n "$manifest" ] || continue
+
+            # `--all` sweeps only directories claiming an id, and so does this.
+            grep -q 'marketplace_id' "$manifest" || {
+              echo "  skip  $dir (no marketplace_id)"
+              continue
+            }
+
+            new=$(manifest_version < "$manifest")
+            old=""
+            if [ -n "$base" ]; then
+              old=$(git show "$base:$manifest" 2>/dev/null | manifest_version)
+            fi
+
+            if [ -n "$old" ] && [ "$old" = "$new" ]; then
+              echo "  skip  $dir (changed, still v$new — bump to publish)"
+              continue
+            fi
+            echo "  take  $dir (${old:-new} -> v$new)"
+            to_publish="$to_publish $dir"
+          done
+
+          if [ -z "$to_publish" ]; then
+            echo "::notice::No plugin changed version in this push; nothing to publish."
+            exit 0
+          fi
+
+          # `--yes` because there is no one to ask. One directory at a time
+          # rather than a batch: a batch refuses as a unit, so one plugin with a
+          # bad manifest would hold back every other plugin in the same push.
+          flags="--yes"
+          [ "${DRY_RUN:-false}" = "true" ] && flags="$flags --dry-run"
+
+          failed=""
+          for dir in $to_publish; do
+            echo "::group::renzora publish $dir"
+            if ! renzora publish "$dir" $flags; then
+              failed="$failed $dir"
+            fi
+            echo "::endgroup::"
+          done
+
+          if [ -n "$failed" ]; then
+            echo "::error::failed to publish:$failed"
+            exit 1
+          fi
