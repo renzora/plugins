@@ -108,9 +108,15 @@ jobs:
               ;;
           esac
 
+      # Invoked through `bash` rather than executed directly, and that is not
+      # belt-and-braces. This repository is worked on from Windows, where git
+      # runs with `core.fileMode = false` and does not record the executable
+      # bit, so the script landed as 0644 and the first run died with
+      # "Permission denied". The mode is set in the index too, but naming the
+      # interpreter is what stops the next Windows commit from undoing it.
       - name: Publish what changed
         run: |
-          .github/scripts/publish-changed.sh \
+          bash .github/scripts/publish-changed.sh \
             "${{ steps.plan.outputs.base }}" \
             "${{ github.sha }}" \
             ${{ steps.plan.outputs.dry }}
