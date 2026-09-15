@@ -1,0 +1,66 @@
+# Native plugin: an ordinary Bevy plugin shipped as source and compiled against
+# the staged SDK on the machine that installs it.
+#
+# ⚠ Do NOT run `cargo build` here. `plugins/` is outside the engine workspace, so
+# cargo would resolve a SECOND Bevy from crates.io and the plugin that came out
+# would have different `TypeId`s from the engine: it would load, run, and
+# corrupt the World. The path dependencies below exist so rust-analyzer can
+# resolve `renzora::` and `renzora_ember::` while you author; the real build is
+# the editor's, against `sdk/`.
+[workspace]
+
+[package]
+name = "terminal"
+# 1.0.1: the listing already carries 1.0.0, which never drew anything on
+# Windows because the emulator answered none of the shell's questions.
+version = "1.0.1"
+edition = "2021"
+description = "A real shell in a dock panel: an OS pseudo-terminal that runs vim, htop, git, claude and anything else full-screen."
+
+[package.metadata.renzora]
+# The listing this publishes to. Claimed once and never changed: it is how a
+# publish finds the existing listing rather than creating a second one beside
+# it.
+marketplace_id = "terminal"
+category = "plugins"
+name = "Terminal"
+thumbnail = "thumbnail.jpeg"
+tags = ["editor", "terminal", "shell", "tools"]
+price_credits = 0
+# The engine this has actually been compiled against. The APIs it uses
+# (`register_shell_panel`, `register_panel_content`, the `.always` schedule on
+# the returned builder) are older than that, so the floor is probably stricter
+# than it needs to be.
+#
+# Deliberately the strict way round, the same call `debugger` makes: claiming an
+# engine it turns out not to build on produces failed installs, while claiming
+# one too new only means older users do not see it yet, and the release can be
+# retargeted from the listing without republishing.
+min_engine_version = "r1-alpha8"
+
+# `dylib`, not `cdylib`. A native plugin links the real Bevy and the real engine
+# crates, so the panel is ordinary Bevy UI rather than anything behind a function
+# table.
+[lib]
+crate-type = ["dylib"]
+
+[dependencies]
+bevy = "0.19"
+# `InputFocusState` is the only contract type that carries weight here: raising
+# `plugin_wants_keyboard` is what stops `G`/`S`/`Delete` firing at the scene
+# while the user is typing a command. Everything else is ordinary vocabulary -
+# `CurrentProject` for the shell's starting directory.
+renzora = { path = "../../engine/crates/renzora", default-features = false, features = ["editor"] }
+# The panel registration and the theme palette the grid paints with. Has to be
+# the SHARED image, which is the whole reason a native plugin is bound to the
+# engine build it was compiled against.
+renzora_ember = { path = "../../engine/crates/renzora_ember" }
+# The pseudo-terminal itself: `openpty` + `forkpty` on Unix, ConPTY on Windows.
+# A pty is the entire reason a program like `vim` believes it is talking to a
+# terminal, so there is no version of this panel that does not open one.
+portable-pty = "0.9"
+# The terminal emulator: the state machine that turns the shell's byte stream
+# into a grid of styled cells. Parsing escape sequences by hand is a decade of
+# edge cases, and getting one wrong shows up as a corrupted screen rather than
+# as an error.
+vt100 = "0.16"
