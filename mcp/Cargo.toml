@@ -1,0 +1,59 @@
+# Native plugin: an ordinary Bevy plugin shipped as source and compiled against
+# the staged SDK on the machine that installs it.
+#
+# Do NOT run `cargo build` here. `plugins/` is outside the engine workspace, so
+# cargo would resolve a SECOND Bevy from crates.io and the plugin that came out
+# would have different `TypeId`s from the engine: it would load, run, and corrupt
+# the World. The path dependencies below exist so rust-analyzer can resolve
+# `renzora::` while you author; the real build is the editor's, against `sdk/`.
+[workspace]
+
+[package]
+name = "mcp"
+version = "1.0.0"
+edition = "2021"
+description = "Lets Claude Code, or any MCP client, see and drive the open editor: build scenes, set materials, import models, place particles and UI, run scripts and play mode."
+
+[package.metadata.renzora]
+# The listing this publishes to. Claimed once and never changed: it is how a
+# publish finds the existing listing rather than creating a second one beside
+# it.
+marketplace_id = "mcp"
+category = "plugins"
+name = "MCP Server"
+thumbnail = "thumbnail.jpg"
+tags = ["editor", "ai", "mcp", "claude", "automation"]
+price_credits = 0
+# Strict, as `terminal` and `debugger` are: it uses the undo core, the camera
+# view request and the in-place import queue from the contract crate, all of
+# which are r1-alpha8. Claiming an engine it does not build on produces failed
+# installs; claiming one too new only hides it from older users until the
+# listing is retargeted.
+min_engine_version = "r1-alpha8"
+
+[lib]
+crate-type = ["dylib"]
+
+[dependencies]
+bevy = "0.19"
+# `editor` for the shell status item, the selection contract and the play-mode
+# resource. The JSON codec comes from this crate's `serde_json` re-export rather
+# than a `serde_json` of our own, for the reason the native-plugin docs give: a
+# privately resolved serde is a DIFFERENT trait from the engine's, so the moment
+# a Bevy type has to cross it the derive stops compiling.
+#
+# `physics_3d` re-exports the engine's own avian, which is the only way to name
+# `Collider` and mean the type the physics step reads. Linking avian directly
+# would compile a second one with different `TypeId`s: the colliders would exist,
+# look right in the inspector, and collide with nothing.
+renzora = { path = "../../engine/crates/renzora", default-features = false, features = ["editor", "physics_3d"] }
+# For `add_ui`, which mounts a template through the game UI's own spawn helper
+# rather than keeping a second copy of how a canvas is laid out and named.
+renzora_ember = { path = "../../engine/crates/renzora_ember" }
+
+# Deliberately no other dependencies, which is why there is no HTTP crate here
+# and `http.rs` speaks HTTP/1.1 by hand. A plugin that declares nothing from
+# crates.io never invokes cargo at all: its build stays offline and takes about a
+# second, against the half-minute a resolve-and-compile of tiny_http costs on
+# every engine move. The server answers one local client on one URL, so the part
+# of HTTP it has to know is small enough to read in one sitting.
