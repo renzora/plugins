@@ -700,10 +700,13 @@ fn sync_clouds(
     // One throttled line a second, only while the dome is actually moving.
     // `recentres` near the frame rate with a `max jump` close to the 1.0
     // threshold is the re-centre-lag explanation; a low count is not.
+    // Debug level: flying an editor camera around keeps the dome re-centring,
+    // and at info this filled the log with a line a second that nobody needs
+    // unless the deck is visibly snapping.
     let now = time.elapsed_secs();
     if now >= clouds_state.diag.next_report {
         if clouds_state.diag.recentres > 0 {
-            info!(
+            debug!(
                 "[clouds] {} recentres/s, max jump {:.2} units (threshold 1.00)",
                 clouds_state.diag.recentres, clouds_state.diag.max_jump
             );
