@@ -13,7 +13,7 @@
 name = "terminal"
 # 1.0.1: the listing already carries 1.0.0, which never drew anything on
 # Windows because the emulator answered none of the shell's questions.
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 description = "A real shell in a dock panel: an OS pseudo-terminal that runs vim, htop, git, claude and anything else full-screen."
 

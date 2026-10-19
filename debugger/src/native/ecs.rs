@@ -8,6 +8,7 @@ use std::hash::{Hash, Hasher};
 use bevy::prelude::*;
 
 use renzora_ember::font::{icon_glyph, icon_text, ui_font, EmberFonts};
+use renzora_ember::UiInteraction;
 use renzora_ember::panel::RegisterPanelContent;
 use renzora_ember::reactive::{KeyedSnapshot};
 use renzora_ember::reactive::Rx;
@@ -195,7 +196,7 @@ where
                 column_gap: Val::Px(4.0),
                 ..default()
             },
-            Interaction::default(),
+            UiInteraction::default(),
             EcsToggle(sec),
             Name::new("ecs-section-header"),
         ))
@@ -240,11 +241,11 @@ where
 struct EcsToggle(Section);
 
 fn toggle_click(
-    q: Query<(&Interaction, &EcsToggle), Changed<Interaction>>,
+    q: Query<(&UiInteraction, &EcsToggle), Changed<UiInteraction>>,
     mut expanded: ResMut<EcsExpanded>,
 ) {
     for (interaction, toggle) in &q {
-        if *interaction == Interaction::Pressed {
+        if *interaction == UiInteraction::Pressed {
             toggle.0.toggle(&mut expanded);
         }
     }

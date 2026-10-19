@@ -94,7 +94,7 @@ pub(crate) fn rebuild_text3d(
             let font = if t3d.font.trim().is_empty() {
                 match &default_font {
                     Some(df) => FontSource::Handle(df.0.clone()),
-                    None => FontSource::SansSerif,
+                    None => FontSource::sans_serif(),
                 }
             } else {
                 FontSource::Handle(asset_server.load(t3d.font.trim().to_string()))

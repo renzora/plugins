@@ -11,7 +11,7 @@
 
 [package]
 name = "polyhaven"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 description = "Browse Poly Haven's CC0 HDRIs, textures and models and import them straight into the project."
 
@@ -48,4 +48,4 @@ name = "PolyHaven"
 thumbnail = "thumbnail.webp"
 tags = ["editor", "tools", "assets", "hdri", "textures"]
 price_credits = 0
-min_engine_version = "r1-alpha7"
+min_engine_version = "r1-alpha8"

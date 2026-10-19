@@ -39,6 +39,7 @@ use bevy::prelude::*;
 
 use renzora::RenzoraShellExt;
 use renzora_ember::font::EmberFonts;
+use renzora_ember::UiInteraction;
 use renzora_ember::panel::RegisterPanelContent;
 use renzora_ember::widgets::{EmberTextInput, FolderPick, WebImages};
 
@@ -176,9 +177,9 @@ fn request_thumbs(hub: Res<Hub>, mut thumbs: ResMut<Thumbs>, mut cache: ResMut<W
 }
 
 /// Switch tabs.
-fn on_kind_tab(mut hub: ResMut<Hub>, tabs: Query<(&Interaction, &KindTab), Changed<Interaction>>) {
+fn on_kind_tab(mut hub: ResMut<Hub>, tabs: Query<(&UiInteraction, &KindTab), Changed<UiInteraction>>) {
     for (interaction, tab) in &tabs {
-        if *interaction == Interaction::Pressed && hub.kind != tab.0 {
+        if *interaction == UiInteraction::Pressed && hub.kind != tab.0 {
             hub.kind = tab.0;
             // The new tab has its own list and its own length. Staying on page 5
             // of the one you left is how a tab looks like it loaded nothing.
@@ -190,10 +191,10 @@ fn on_kind_tab(mut hub: ResMut<Hub>, tabs: Query<(&Interaction, &KindTab), Chang
 /// Page the grid backwards or forwards.
 fn on_page_button(
     mut hub: ResMut<Hub>,
-    buttons: Query<(&Interaction, &PageButton), Changed<Interaction>>,
+    buttons: Query<(&UiInteraction, &PageButton), Changed<UiInteraction>>,
 ) {
     for (interaction, button) in &buttons {
-        if *interaction == Interaction::Pressed {
+        if *interaction == UiInteraction::Pressed {
             // `turn_page` clamps and writes only on a real change, so a press at
             // either end costs nothing and does not mark the hub dirty.
             hub.turn_page(button.0);
@@ -202,9 +203,9 @@ fn on_page_button(
 }
 
 /// Change the download resolution.
-fn on_res_chip(mut hub: ResMut<Hub>, chips: Query<(&Interaction, &ResChip), Changed<Interaction>>) {
+fn on_res_chip(mut hub: ResMut<Hub>, chips: Query<(&UiInteraction, &ResChip), Changed<UiInteraction>>) {
     for (interaction, chip) in &chips {
-        if *interaction == Interaction::Pressed && hub.res != chip.0 {
+        if *interaction == UiInteraction::Pressed && hub.res != chip.0 {
             hub.res = chip.0;
         }
     }
@@ -219,7 +220,7 @@ fn on_tile_pressed(
     mut commands: Commands,
     hub: Res<Hub>,
     fonts: Option<Res<EmberFonts>>,
-    tiles: Query<(&Interaction, &TileAsset), Changed<Interaction>>,
+    tiles: Query<(&UiInteraction, &TileAsset), Changed<UiInteraction>>,
     project: Option<Res<renzora::CurrentProject>>,
     pending: Option<Res<dest::PendingPick>>,
 ) {
@@ -233,7 +234,7 @@ fn on_tile_pressed(
     };
 
     for (interaction, tile) in &tiles {
-        if *interaction != Interaction::Pressed {
+        if *interaction != UiInteraction::Pressed {
             continue;
         }
         let slug = tile.0.clone();
@@ -281,21 +282,21 @@ fn on_tile_pressed(
 fn on_dest_buttons(
     mut commands: Commands,
     mut hub: ResMut<Hub>,
-    confirm: Query<&Interaction, (With<dest::DestConfirm>, Changed<Interaction>)>,
-    cancel: Query<(&Interaction, &dest::DestCancel), Changed<Interaction>>,
+    confirm: Query<&UiInteraction, (With<dest::DestConfirm>, Changed<UiInteraction>)>,
+    cancel: Query<(&UiInteraction, &dest::DestCancel), Changed<UiInteraction>>,
     pending: Option<Res<dest::PendingPick>>,
     pick: Res<FolderPick>,
     project: Option<Res<renzora::CurrentProject>>,
 ) {
     for (interaction, button) in &cancel {
-        if *interaction == Interaction::Pressed {
+        if *interaction == UiInteraction::Pressed {
             commands.entity(button.0).despawn();
             commands.remove_resource::<dest::PendingPick>();
             return;
         }
     }
 
-    if !confirm.iter().any(|i| *i == Interaction::Pressed) {
+    if !confirm.iter().any(|i| *i == UiInteraction::Pressed) {
         return;
     }
     let Some(pending) = pending else {

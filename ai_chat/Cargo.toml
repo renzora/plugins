@@ -12,7 +12,7 @@
 
 [package]
 name = "ai_chat"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Chat with a local or hosted LLM, in an editor panel."
 
@@ -46,4 +46,4 @@ category = "plugins"
 tags = ["editor", "tools", "ai", "llm", "panel"]
 price_credits = 0
 thumbnail = "thumbnail.webp"
-min_engine_version = "r1-alpha7"
+min_engine_version = "r1-alpha8"

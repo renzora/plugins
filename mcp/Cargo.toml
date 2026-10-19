@@ -10,7 +10,7 @@
 
 [package]
 name = "mcp"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 description = "Lets Claude Code, or any MCP client, see and drive the open editor: build scenes, set materials, import models, place particles and UI, run scripts and play mode."
 

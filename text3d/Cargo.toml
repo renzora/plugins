@@ -10,7 +10,7 @@
 
 [package]
 name = "text3d"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 description = "3D text — crisp SDF quads, or real triangulated glyph geometry, optionally extruded."
 
@@ -37,4 +37,4 @@ category = "plugins"
 tags = ["rendering", "text", "fonts", "sdf"]
 price_credits = 0
 thumbnail = "thumbnail.webp"
-min_engine_version = "r1-alpha7"
+min_engine_version = "r1-alpha8"

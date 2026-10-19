@@ -10,7 +10,7 @@
 
 [package]
 name = "clouds"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 description = "Volumetric clouds raymarched through a spherical deck (HZD/Frostbite model)."
 
@@ -32,4 +32,4 @@ category = "plugins"
 tags = ["rendering", "sky", "weather", "volumetric", "atmosphere"]
 price_credits = 0
 thumbnail = "thumbnail.webp"
-min_engine_version = "r1-alpha7"
+min_engine_version = "r1-alpha8"

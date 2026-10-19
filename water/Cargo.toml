@@ -10,7 +10,7 @@
 
 [package]
 name = "water"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "FFT ocean water: a GPU spectrum and inverse FFT drive a displaced surface mesh, with buoyancy for anything floating on it."
 
@@ -34,4 +34,4 @@ marketplace_id = "water"
 category = "plugins"
 tags = ["rendering", "water", "ocean", "simulation"]
 price_credits = 0
-min_engine_version = "r1-alpha7"
+min_engine_version = "r1-alpha8"

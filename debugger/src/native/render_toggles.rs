@@ -9,7 +9,7 @@
 //!
 //! Why this exists: on an empty scene the editor still spends ~30ms of GPU
 //! per frame for ~15 draw calls, because the cost is fullscreen passes on
-//! the active camera (atmosphere + screen-space GI + auto-exposure), not
+//! the active camera (atmosphere + auto-exposure), not
 //! geometry. These toggles let us bisect which pass is responsible on a
 //! given machine (notably Apple Silicon / Retina).
 //!
@@ -25,7 +25,7 @@
 use bevy::prelude::*;
 
 use renzora::core::viewport_types::ViewportSettings;
-use renzora::{IsolatedCamera, LumenLighting, LumenQuality, RenzoraShellExt, RtLighting, SplashState};
+use renzora::{IsolatedCamera, RenzoraShellExt, SplashState};
 use renzora::AutoExposureSettings;
 use renzora_ember::reactive::Rx;
 use renzora_ember::font::{ui_font, EmberFonts};
@@ -42,15 +42,11 @@ pub struct RenderToggles {
     /// Allow offscreen preview cameras (Studio/Material/Shader/Particle,
     /// thumbnails, UI render cam — anything `IsolatedCamera`) to render.
     pub preview_cameras: bool,
-    /// Screen-space global illumination (Lumen + RT lighting).
-    pub gi: bool,
     /// Auto-exposure post-process (the per-frame histogram pass).
     pub auto_exposure: bool,
     // No `shadows` field: the panel's "Shadows" checkbox reads/writes the
     // engine's existing `ViewportSettings.render_toggles.shadows` directly, so
     // there's a single owner and no enforcement system of our own.
-    gi_saved: Vec<(Entity, RtLighting)>,
-    lumen_saved: Vec<(Entity, LumenLighting)>,
     ae_saved: Vec<(Entity, bool)>,
 }
 
@@ -58,10 +54,7 @@ impl Default for RenderToggles {
     fn default() -> Self {
         Self {
             preview_cameras: true,
-            gi: true,
             auto_exposure: true,
-            gi_saved: Vec::new(),
-            lumen_saved: Vec::new(),
             ae_saved: Vec::new(),
         }
     }
@@ -89,7 +82,6 @@ pub(super) fn register(app: &mut App) {
         PostUpdate,
         (
             enforce_preview_cameras,
-            enforce_gi,
             enforce_auto_exposure,
         )
             .run_if(in_state(SplashState::Editor)),
@@ -117,13 +109,6 @@ fn build(commands: &mut Commands, fonts: &EmberFonts) -> Entity {
         |w| get(w, |t| t.preview_cameras),
         |w, v| set(w, move |t| t.preview_cameras = v),
     );
-    let r2 = checkbox_row(
-        commands,
-        fonts,
-        &renzora::lang::t("render.toggle_gi"),
-        |w| get(w, |t| t.gi),
-        |w, v| set(w, move |t| t.gi = v),
-    );
     let r3 = checkbox_row(
         commands,
         fonts,
@@ -140,7 +125,7 @@ fn build(commands: &mut Commands, fonts: &EmberFonts) -> Entity {
     let r5 = checkbox_row(commands, fonts, &renzora::lang::t("render.toggle_meshes"), |w| vp(w, |t| t.mesh), |w, v| vp_set(w, move |t| t.mesh = v));
     let r6 = checkbox_row(commands, fonts, &renzora::lang::t("render.textures"), |w| vp(w, |t| t.textures), |w, v| vp_set(w, move |t| t.textures = v));
     let r7 = checkbox_row(commands, fonts, &renzora::lang::t("render.toggle_lighting"), |w| vp(w, |t| t.lighting), |w, v| vp_set(w, move |t| t.lighting = v));
-    commands.entity(box_).add_children(&[r1, r2, r3, r4, r5, r6, r7]);
+    commands.entity(box_).add_children(&[r1, r3, r4, r5, r6, r7]);
 
     commands.entity(root).add_children(&[label, hint, box_]);
     root
@@ -184,56 +169,6 @@ fn enforce_preview_cameras(
             cam.is_active = false;
         }
     }
-}
-
-/// Disable Lumen + RT lighting while off (saving originals on the way down,
-/// restoring them on the way back up). The per-frame force loop keeps GI off
-/// even if the effect-routing system re-applies it.
-fn enforce_gi(
-    mut toggles: ResMut<RenderToggles>,
-    mut last: Local<Option<bool>>,
-    mut rt: Query<(Entity, &mut RtLighting)>,
-    mut lumen: Query<(Entity, &mut LumenLighting)>,
-) {
-    let now = toggles.gi;
-    let transitioned = *last != Some(now);
-
-    if !now {
-        if transitioned {
-            toggles.gi_saved.clear();
-            toggles.lumen_saved.clear();
-            for (e, r) in &rt {
-                toggles.gi_saved.push((e, r.clone()));
-            }
-            for (e, l) in &lumen {
-                toggles.lumen_saved.push((e, l.clone()));
-            }
-        }
-        // Guard the writes so we don't re-trigger change detection every frame.
-        for (_, mut r) in &mut rt {
-            if r.enabled {
-                r.enabled = false;
-            }
-        }
-        for (_, mut l) in &mut lumen {
-            if l.quality != LumenQuality::Off {
-                l.quality = LumenQuality::Off;
-            }
-        }
-    } else if transitioned {
-        for (e, v) in std::mem::take(&mut toggles.gi_saved) {
-            if let Ok((_, mut r)) = rt.get_mut(e) {
-                *r = v;
-            }
-        }
-        for (e, v) in std::mem::take(&mut toggles.lumen_saved) {
-            if let Ok((_, mut l)) = lumen.get_mut(e) {
-                *l = v;
-            }
-        }
-    }
-
-    *last = Some(now);
 }
 
 /// Disable the auto-exposure source(s) while off, restore on the way back up.

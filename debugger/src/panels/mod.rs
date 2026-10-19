@@ -4,5 +4,4 @@
 //! crate's backend-agnostic `update_*` systems); the native panels in
 //! [`crate::native`] render them.
 
-pub mod lumen;
 pub mod scripting;

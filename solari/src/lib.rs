@@ -2,7 +2,7 @@
 //!
 //! Wraps Bevy's experimental `bevy_solari` (`SolariPlugins`: realtime raytraced
 //! direct + indirect lighting, fully dynamic, no baking) behind Renzora's plugin
-//! contract. Ships as a `cdylib` in `plugins/` like `renzora_lumen` — drop it in
+//! contract. Ships as a native plugin in `plugins/`: drop it in
 //! to enable Solari, delete it to disable. Nothing in the host references this
 //! crate.
 //!
@@ -21,8 +21,7 @@
 //! ## Authoring
 //!
 //! [`renzora::SolariGi`] is authored on the "World Environment" source entity
-//! and routed to cameras via [`renzora::EffectRouting`] (same mechanism as
-//! `LumenLighting`). While enabled we attach Bevy's `SolariLighting` to each
+//! and routed to cameras via [`renzora::EffectRouting`]. While enabled we attach Bevy's `SolariLighting` to each
 //! routed camera (which pulls in the required HDR + prepass components) with
 //! `Msaa::Off`, and mirror every *conforming* mesh into the ray-tracing scene
 //! via `RaytracingMesh3d`. Solari's BLAS builder rejects meshes that lack
@@ -58,7 +57,7 @@ use bevy::render::view::Msaa;
 use bevy::solari::realtime::SolariLighting;
 use bevy::solari::scene::RaytracingMesh3d;
 use bevy::solari::SolariPlugins;
-use renzora::{EffectRouting, GpuRaytracing, SolariGi};
+use renzora::{EffectRouting, GpuRaytracing, SolariGi, SolariQuality};
 
 // NOT `#[cfg(feature = "editor")]`. A native plugin has no cargo features at
 // all — rustc compiles it directly against the SDK with none set — so the gate
@@ -145,7 +144,7 @@ impl Plugin for SolariPlugin {
                 sync_light_proxies,
                 log_solari_coverage,
                 warn_unsupported_lights,
-                warn_missing_ambient_sources,
+                warn_missing_sky_light,
             )
                 .chain()
                 .after(VisibilitySystems::VisibilityPropagate),
@@ -161,15 +160,21 @@ impl Plugin for SolariPlugin {
 /// [`manage_solari_render_mode`] and read by [`on_camera3d_inserted`] so a
 /// camera spawned mid-session is force-converted to the deferred prepass the
 /// moment it appears (the global renderer method is deferred while active).
+///
+/// `restore` is the renderer method that was in force before Solari switched it
+/// to deferred, put back when Solari goes idle. It used to put back *forward*
+/// unconditionally, which in a project set to Deferred left the whole editor on
+/// the wrong method after one off/on of Solari, fighting the engine's own
+/// deferred setup on every camera.
 #[derive(Resource, Default)]
-struct SolariActive(bool);
+struct SolariActive(bool, Option<DefaultOpaqueRendererMethod>);
 
 /// Camera setup Solari requires but doesn't auto-`require`: `Msaa::Off` and a
 /// `STORAGE_BINDING` main texture. Applied the instant `SolariLighting` is
 /// inserted — covers our sync, scene load, and the play-mode scene clone — so a
 /// Solari camera never renders a frame without them (which fails
 /// `solari_lighting_bind_group` creation and hard-crashes the renderer).
-fn on_solari_lighting_inserted(trigger: On<Insert, SolariLighting>, mut commands: Commands) {
+fn on_solari_lighting_inserted(trigger: On<Insert<SolariLighting>>, mut commands: Commands) {
     commands.entity(trigger.entity).try_insert((
         Msaa::Off,
         CameraMainTextureUsages::default().with(TextureUsages::STORAGE_BINDING),
@@ -182,12 +187,16 @@ fn on_solari_lighting_inserted(trigger: On<Insert, SolariLighting>, mut commands
 /// renders deferred materials without a deferred phase panics in
 /// `queue_prepass_material_meshes`. Doing this in an observer (not an Update
 /// system) closes the one-frame gap that crashed on Play / project load.
+///
+/// A camera that already has a deferred prepass is left alone and NOT marked, so
+/// going idle never strips a prepass the engine put there itself.
 fn on_camera3d_inserted(
-    trigger: On<Insert, Camera3d>,
+    trigger: On<Insert<Camera3d>>,
     state: Res<SolariActive>,
+    has_deferred: Query<Has<DeferredPrepass>>,
     mut commands: Commands,
 ) {
-    if state.0 {
+    if state.0 && !has_deferred.get(trigger.entity).unwrap_or(false) {
         commands
             .entity(trigger.entity)
             .try_insert((DeferredPrepass, Msaa::Off, SolariForcedDeferred));
@@ -205,28 +214,38 @@ struct SolariMeshSkip;
 /// enabled, give the camera Bevy's `SolariLighting` (its `#[require]`s pull in
 /// HDR + the deferred/depth/motion prepasses) and force `Msaa::Off`, which
 /// Solari mandates. Presence-checked so we don't churn the component every frame.
+///
+/// The quality preset is written in place on a camera that already has
+/// `SolariLighting`, and only when it differs, so picking a preset neither
+/// re-runs the insert observer nor marks the component changed every frame.
 fn sync_solari_cameras(
     mut commands: Commands,
     sources: Query<&SolariGi>,
-    has_solari: Query<(), With<SolariLighting>>,
+    mut cameras: Query<&mut SolariLighting>,
     routing: Res<EffectRouting>,
 ) {
     for (target, source_list) in routing.iter() {
         let target = *target;
-        // First source entity that carries SolariGi wins (mirrors EffectRouting
-        // semantics used by Lumen).
-        let enabled = source_list
-            .iter()
-            .find_map(|&s| sources.get(s).ok())
-            .map(|gi| gi.enabled)
-            .unwrap_or(false);
-        let present = has_solari.get(target).is_ok();
+        // First source entity that carries SolariGi wins.
+        let gi = source_list.iter().find_map(|&s| sources.get(s).ok());
+        let enabled = gi.is_some_and(|gi| gi.enabled);
+        let quality = gi.map(|gi| gi.quality).unwrap_or_default();
+        let present = cameras.get(target).is_ok();
 
         if enabled && !present {
             if let Ok(mut ec) = commands.get_entity(target) {
                 // `on_solari_lighting_inserted` adds Msaa::Off + the
                 // STORAGE_BINDING main-texture usage the moment this lands.
-                ec.try_insert(SolariLighting::default());
+                ec.try_insert(solari_lighting_for(quality));
+            }
+        } else if enabled {
+            if let Ok(mut lighting) = cameras.get_mut(target) {
+                let wanted = solari_lighting_for(quality);
+                if !same_preset(&lighting, &wanted) {
+                    // `wanted.reset` is true, so the old preset's temporal
+                    // history is dropped rather than blended into the new one.
+                    *lighting = wanted;
+                }
             }
         } else if !enabled && present {
             if let Ok(mut ec) = commands.get_entity(target) {
@@ -243,6 +262,66 @@ fn sync_solari_cameras(
     }
 }
 
+/// Bevy's `SolariLighting` for a [`SolariQuality`] preset.
+///
+/// ReSTIR is on for everything above `Low`, and that is the setting that
+/// matters: Bevy 0.19 always ran it, while 0.20 made it optional and off by
+/// default, expecting DLSS Ray Reconstruction to denoise instead. This build has
+/// no DLSS, so Bevy's default left the raw, grainy samples on screen. `High` is
+/// Bevy's own defaults with ReSTIR on, which is what the plugin rendered before
+/// presets existed.
+fn solari_lighting_for(quality: SolariQuality) -> SolariLighting {
+    let base = SolariLighting::default();
+    match quality {
+        SolariQuality::Low => SolariLighting {
+            restir: false,
+            primary_di_samples: 2,
+            secondary_di_samples: 1,
+            max_bounces: 1,
+            world_cache_direct_light_sample_count: 8,
+            world_cache_cell_updates_soft_target: 10_000,
+            ..base
+        },
+        SolariQuality::Medium => SolariLighting {
+            restir: true,
+            primary_di_samples: 4,
+            secondary_di_samples: 2,
+            max_bounces: 2,
+            world_cache_direct_light_sample_count: 16,
+            world_cache_cell_updates_soft_target: 20_000,
+            ..base
+        },
+        SolariQuality::High => SolariLighting {
+            restir: true,
+            ..base
+        },
+        SolariQuality::Ultra => SolariLighting {
+            restir: true,
+            primary_di_samples: 16,
+            secondary_di_samples: 8,
+            max_bounces: 4,
+            world_cache_max_temporal_samples: 64.0,
+            world_cache_direct_light_sample_count: 64,
+            world_cache_cell_updates_soft_target: 80_000,
+            ..base
+        },
+    }
+}
+
+/// Whether `current` already carries every field a preset sets. `reset` is left
+/// out: it is a one-shot request, not part of the preset.
+fn same_preset(current: &SolariLighting, wanted: &SolariLighting) -> bool {
+    current.restir == wanted.restir
+        && current.primary_di_samples == wanted.primary_di_samples
+        && current.secondary_di_samples == wanted.secondary_di_samples
+        && current.max_bounces == wanted.max_bounces
+        && current.world_cache_max_temporal_samples == wanted.world_cache_max_temporal_samples
+        && current.world_cache_direct_light_sample_count
+            == wanted.world_cache_direct_light_sample_count
+        && current.world_cache_cell_updates_soft_target
+            == wanted.world_cache_cell_updates_soft_target
+}
+
 /// Marker on cameras we forced into the deferred prepass while Solari is active,
 /// so they can be reverted when it goes idle.
 #[derive(Component)]
@@ -253,8 +332,9 @@ struct SolariForcedDeferred;
 /// carry a deferred prepass, or it panics in `queue_prepass_material_meshes`
 /// (a deferred material with no deferred phase). This flips
 /// `DefaultOpaqueRendererMethod` to deferred and forces the deferred prepass (+
-/// `Msaa::Off`) onto every `Camera3d` while any camera runs Solari, then reverts
-/// to forward when none do.
+/// `Msaa::Off`) onto every `Camera3d` that lacks one while any camera runs
+/// Solari, then restores the previous method, and undoes only the cameras it
+/// changed, when none do.
 ///
 /// Consequence: the whole viewport — and any preview/thumbnail cameras — render
 /// deferred while Solari is on. That is inherent to how Bevy Solari works (it
@@ -266,11 +346,15 @@ fn manage_solari_render_mode(
     mut state: ResMut<SolariActive>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     active: Query<(), With<SolariLighting>>,
-    unforced_cameras: Query<Entity, (With<Camera3d>, Without<SolariForcedDeferred>)>,
+    // Cameras with no deferred prepass yet. One that already has one, such as
+    // the editor camera in a Deferred project, is the engine's and must not be
+    // marked, or going idle would strip its prepass.
+    unforced_cameras: Query<Entity, (With<Camera3d>, Without<DeferredPrepass>)>,
     forced_cameras: Query<Entity, With<SolariForcedDeferred>>,
 ) {
     if !active.is_empty() {
         if !state.0 {
+            state.1 = Some(method.clone());
             *method = DefaultOpaqueRendererMethod::deferred();
             state.0 = true;
             force_material_respecialization(&mut materials);
@@ -278,14 +362,14 @@ fn manage_solari_render_mode(
         // Sweep every EXISTING 3d camera on activation (the observer handles ones
         // spawned later) so none renders deferred materials without a deferred
         // phase. Only DeferredPrepass (the deferred phase keys on it) + Msaa::Off
-        // — DON'T touch DepthPrepass, which Renzora manages for SSAO/SSR/SSGI.
+        // and DON'T touch DepthPrepass, which Renzora manages for SSAO/SSR.
         for cam in &unforced_cameras {
             commands
                 .entity(cam)
                 .try_insert((DeferredPrepass, Msaa::Off, SolariForcedDeferred));
         }
     } else if state.0 {
-        *method = DefaultOpaqueRendererMethod::forward();
+        *method = state.1.take().unwrap_or_else(DefaultOpaqueRendererMethod::forward);
         state.0 = false;
         force_material_respecialization(&mut materials);
         for cam in &forced_cameras {
@@ -419,16 +503,6 @@ type Unmirrored = (Without<RaytracingMesh3d>, Without<SolariMeshSkip>);
 /// about, either way.
 type Decided = Or<(With<RaytracingMesh3d>, With<SolariMeshSkip>)>;
 
-/// Cameras running Solari that also carry an image-based light — the baked
-/// atmosphere IBL, or an explicit environment map. Aliased to keep clippy's
-/// `type_complexity` lint quiet, which CI runs as `-D warnings`.
-type ImageBasedLit = (
-    With<SolariLighting>,
-    Or<(
-        With<EnvironmentMapLight>,
-        With<GeneratedEnvironmentMapLight>,
-    )>,
-);
 
 /// [`SceneSet`] minus the material, for lights — same visibility and layer
 /// reasoning, but a light has no material to check.
@@ -656,6 +730,7 @@ fn clear_solari_reset(mut cameras: Query<&mut SolariLighting>) {
 ///
 /// Extracted to the render world, where [`suppress_shadow_maps`] acts on it.
 #[derive(Resource, Clone, Copy, Default, ExtractResource)]
+#[extract_app(RenderApp)]
 struct SuppressShadowMaps(bool);
 
 /// Track whether shadow maps should be suppressed, for the render world to read.
@@ -1031,55 +1106,59 @@ fn warn_unsupported_lights(
     }
 }
 
-/// Warn once about the ambient and image-based light sources Solari throws away.
+/// Warn when Solari has no sky light, and once about `AmbientLight`, which it
+/// never uses.
 ///
-/// Unlike point and spot lights, these have no workaround. Both are applied in
-/// Bevy's deferred lighting pass, which a Solari camera's `SkipDeferredLighting`
-/// removes, and Solari has no ambient term and no miss-radiance hook to put them
-/// back. The only shape they could take in a traced scene is an enclosing
-/// emissive dome — which would then sit between every surface and the sun.
+/// Since Bevy 0.20, Solari's sky is the camera's environment map: a ray that
+/// misses the scene samples it, scaled by its `intensity`. Bevy prefers the
+/// `GeneratedEnvironmentMapLight` (Renzora's baked atmosphere) and falls back to
+/// an `EnvironmentMapLight`. With neither, or at zero intensity (the World
+/// Environment's Environment Map switched off), everything not facing the sun is
+/// lit by bounce alone and facades go close to black while sunlit ground looks
+/// right, which reads as broken GI rather than a missing sky. 0.19 had no sky
+/// term at all, and this used to warn about the opposite.
 ///
-/// This is worth its own warning because **it is usually the single biggest
-/// reason a scene looks darker under Solari**, and it is invisible in the scene
-/// tree. An outdoor daylight scene gets a large share of its light from the sky:
-/// the procedural atmosphere baked into an `EnvironmentMapLight` (Renzora's
-/// World Environment does this by default) is what fills in every surface not
-/// facing the sun. Losing it takes facades and shadowed ground close to black
-/// while the sunlit ground stays correct — which reads as "GI is broken" rather
-/// than "the sky stopped contributing".
-fn warn_missing_ambient_sources(
-    active: Query<(), With<SolariLighting>>,
-    // Both are per-camera components in Bevy 0.19, so ask the Solari cameras
-    // rather than looking for global resources.
+/// `AmbientLight` is still dropped: it is applied in the deferred lighting pass,
+/// which a Solari camera's `SkipDeferredLighting` removes.
+fn warn_missing_sky_light(
+    sky: Query<
+        (
+            Option<&GeneratedEnvironmentMapLight>,
+            Option<&EnvironmentMapLight>,
+        ),
+        With<SolariLighting>,
+    >,
     ambient: Query<&AmbientLight, With<SolariLighting>>,
-    image_based: Query<(), ImageBasedLit>,
-    mut warned: Local<bool>,
+    mut warned_sky: Local<bool>,
+    mut warned_ambient: Local<bool>,
 ) {
-    if active.is_empty() {
-        *warned = false;
+    if sky.is_empty() {
+        *warned_sky = false;
+        *warned_ambient = false;
         return;
     }
-    if *warned {
-        return;
+    // Same precedence as `bevy_solari`'s `extract_raytracing_environment_map_light`.
+    let has_sky = sky.iter().any(|(generated, map)| match (generated, map) {
+        (Some(generated), _) => generated.intensity > 0.0,
+        (None, Some(map)) => map.intensity > 0.0,
+        (None, None) => false,
+    });
+    if has_sky {
+        // Re-arm, so switching the sky off again later warns again.
+        *warned_sky = false;
+    } else if !*warned_sky {
+        *warned_sky = true;
+        warn!(
+            "[solari] no sky light: Solari lights the sky from the environment map, and this \
+             camera has none or has it at zero intensity. Everything not facing the sun is lit \
+             by bounce alone. Turn on Environment Map on the World Environment (intensity 1.0 \
+             is the physically correct sky)."
+        );
     }
-    let has_ambient = ambient.iter().any(|a| a.brightness > 0.0);
-    let has_ibl = !image_based.is_empty();
-    if !has_ambient && !has_ibl {
-        return;
+    if !*warned_ambient && ambient.iter().any(|a| a.brightness > 0.0) {
+        *warned_ambient = true;
+        warn!("[solari] AmbientLight is ignored while Solari is on; use the environment map instead.");
     }
-    *warned = true;
-    warn!(
-        "[solari] the scene's sky/ambient lighting is ignored{}{} — Solari samples only \
-         directional lights and emissive meshes, so everything not facing the sun is lit by \
-         bounce alone. This is inherent to bevy_solari and is usually the main reason a Solari \
-         render looks much darker than the raster one.",
-        if has_ibl {
-            " (environment map / baked atmosphere IBL)"
-        } else {
-            ""
-        },
-        if has_ambient { " (AmbientLight)" } else { "" },
-    );
 }
 
 /// Diagnostic: log the ray-tracing scene coverage whenever the tallies change

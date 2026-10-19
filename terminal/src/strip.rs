@@ -29,10 +29,12 @@
 //! pointed at. A serial at worst names a tab that is already gone.
 
 use bevy::prelude::*;
-use bevy::ui::{ComputedNode, FocusPolicy, RelativeCursorPosition, ScrollPosition, UiGlobalTransform};
+use bevy::ui::{ComputedNode, RelativeCursorPosition, ScrollPosition, UiGlobalTransform};
 use bevy::window::PrimaryWindow;
 
 use renzora_ember::font::{glyph, ui_font, EmberFonts};
+use renzora_ember::interaction::{BLOCK, PASS_THROUGH};
+use renzora_ember::UiInteraction;
 use renzora_ember::theme::{
     accent, divider, hover_bg, panel_bg, rgb, tab_active, tab_hover, text_muted, text_primary,
 };
@@ -125,7 +127,7 @@ pub fn build(commands: &mut Commands) -> Entity {
             // scrolls the shell's history instead, which is somewhere else
             // entirely on screen.
             RelativeCursorPosition::default(),
-            FocusPolicy::Pass,
+            PASS_THROUGH,
             TermStrip,
             Name::new("terminal-strip"),
         ))
@@ -254,7 +256,7 @@ pub fn sync(
                 ..default()
             },
             ScrollPosition::default(),
-            FocusPolicy::Pass,
+            PASS_THROUGH,
             TermChips,
             Name::new("terminal-chips"),
         ))
@@ -343,10 +345,10 @@ fn chip(
         .spawn((
             node,
             BackgroundColor(rgb(bg)),
-            Interaction::default(),
+            UiInteraction::default(),
             // Block, or the click continues to the panel root and the strip
             // reads as part of the grid.
-            FocusPolicy::Block,
+            BLOCK,
             // The pointer's position inside the chip, so a right-click can open
             // its menu at the cursor.
             RelativeCursorPosition::default(),
@@ -392,7 +394,7 @@ fn chip(
                     overflow: Overflow::clip(),
                     ..default()
                 },
-                FocusPolicy::Pass,
+                PASS_THROUGH,
             ))
             .id()
     };
@@ -411,8 +413,8 @@ fn chip(
             // with no `BackgroundColor` would not match that query at all, and
             // the button would silently never light up.
             BackgroundColor(Color::NONE),
-            Interaction::default(),
-            FocusPolicy::Block,
+            UiInteraction::default(),
+            BLOCK,
             TabClose(id),
             Name::new(format!("terminal-tab-close-{id}")),
         ))
@@ -445,7 +447,7 @@ fn controls(commands: &mut Commands, side: StripSide, overflowing: bool) -> Enti
                 height: if side.vertical() { Val::Px(TOP_HEIGHT) } else { Val::Auto },
                 ..default()
             },
-            FocusPolicy::Pass,
+            PASS_THROUGH,
             Name::new("terminal-controls"),
         ))
         .id();
@@ -522,8 +524,8 @@ fn control(
                 ..default()
             },
             BackgroundColor(Color::NONE),
-            Interaction::default(),
-            FocusPolicy::Block,
+            UiInteraction::default(),
+            BLOCK,
             // Needed by the two that open a menu, to recover their own on-screen
             // rect; harmless on the others.
             RelativeCursorPosition::default(),
@@ -698,15 +700,15 @@ pub fn overflow_menu(
     fonts: Option<Res<EmberFonts>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     buttons: Query<
-        (&Interaction, &RelativeCursorPosition, &ComputedNode),
-        (With<OverflowButton>, Changed<Interaction>),
+        (&UiInteraction, &RelativeCursorPosition, &ComputedNode),
+        (With<OverflowButton>, Changed<UiInteraction>),
     >,
 ) {
     let (Some(fonts), Ok(window)) = (fonts, windows.single()) else {
         return;
     };
     for (interaction, pointer, computed) in &buttons {
-        if *interaction != Interaction::Pressed {
+        if *interaction != UiInteraction::Pressed {
             continue;
         }
         let Some(cursor) = window.cursor_position() else {
@@ -752,14 +754,14 @@ pub fn overflow_menu(
 
 /// Switch, close, open, and move the strip.
 ///
-/// `Changed<Interaction>` on every query: `Pressed` persists for as long as the
+/// `Changed<UiInteraction>` on every query: `Pressed` persists for as long as the
 /// button is held, so without it a single click on `+` opens a tab per frame.
 pub fn clicks(
     mut term: ResMut<Terminal>,
-    switch: Query<(&Interaction, &TabButton), Changed<Interaction>>,
-    close: Query<(&Interaction, &TabClose), Changed<Interaction>>,
-    new: Query<&Interaction, (With<NewTabButton>, Changed<Interaction>)>,
-    sides: Query<(&Interaction, &SideButton), Changed<Interaction>>,
+    switch: Query<(&UiInteraction, &TabButton), Changed<UiInteraction>>,
+    close: Query<(&UiInteraction, &TabClose), Changed<UiInteraction>>,
+    new: Query<&UiInteraction, (With<NewTabButton>, Changed<UiInteraction>)>,
+    sides: Query<(&UiInteraction, &SideButton), Changed<UiInteraction>>,
 ) {
     // Closes are read first. A press on the `x` is a press on a node inside the
     // chip, and both are reported: handling the switch first would activate a tab
@@ -767,13 +769,13 @@ pub fn clicks(
     // to rather than on the one the user was looking at.
     let mut closed = None;
     for (interaction, target) in &close {
-        if *interaction == Interaction::Pressed {
+        if *interaction == UiInteraction::Pressed {
             closed = Some(target.0);
             term.close(target.0);
         }
     }
     for (interaction, target) in &switch {
-        if *interaction == Interaction::Pressed && closed != Some(target.id) {
+        if *interaction == UiInteraction::Pressed && closed != Some(target.id) {
             // Deliberately does NOT end a rename in progress. Clicking another
             // tab blurs the field, and `rename_commit` reads that blur as a
             // commit - the same as clicking off any other inline field. Clearing
@@ -782,11 +784,11 @@ pub fn clicks(
             term.activate(target.id);
         }
     }
-    if new.iter().any(|i| *i == Interaction::Pressed) {
+    if new.iter().any(|i| *i == UiInteraction::Pressed) {
         term.open();
     }
     for (interaction, side) in &sides {
-        if *interaction == Interaction::Pressed {
+        if *interaction == UiInteraction::Pressed {
             term.set_side(side.0);
         }
     }
@@ -795,7 +797,7 @@ pub fn clicks(
 /// Double-click to rename, right-click for the chip's menu.
 ///
 /// Both live here rather than in [`clicks`] because neither is a plain press:
-/// `Interaction` reports the left button only, so the right-click is read from
+/// `UiInteraction` reports the left button only, so the right-click is read from
 /// `ButtonInput` against whichever chip is hovered, and the double-click needs
 /// the timing that a single `Pressed` cannot carry.
 pub fn gestures(
@@ -805,13 +807,13 @@ pub fn gestures(
     mouse: Res<ButtonInput<MouseButton>>,
     fonts: Option<Res<EmberFonts>>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    chips: Query<(&Interaction, &TabButton)>,
-    pressed: Query<(&Interaction, &TabButton), Changed<Interaction>>,
+    chips: Query<(&UiInteraction, &TabButton)>,
+    pressed: Query<(&UiInteraction, &TabButton), Changed<UiInteraction>>,
     mut last_click: Local<Option<(u32, f32)>>,
 ) {
     let now = time.elapsed_secs();
     for (interaction, chip) in &pressed {
-        if *interaction != Interaction::Pressed {
+        if *interaction != UiInteraction::Pressed {
             continue;
         }
         let double = last_click
@@ -832,7 +834,7 @@ pub fn gestures(
     }
     let Some(chip) = chips
         .iter()
-        .find(|(interaction, _)| **interaction != Interaction::None)
+        .find(|(interaction, _)| **interaction != UiInteraction::None)
         .map(|(_, chip)| chip.id)
     else {
         return;
@@ -929,11 +931,11 @@ pub fn rename_commit(
 /// multi-part control, and its halves have to highlight independently: hovering
 /// the `x` should show that the `x` is what will be hit, not that the tab is.
 pub fn hover(
-    mut tabs: Query<(&Interaction, &TabButton, &mut BackgroundColor), Changed<Interaction>>,
+    mut tabs: Query<(&UiInteraction, &TabButton, &mut BackgroundColor), Changed<UiInteraction>>,
     mut buttons: Query<
-        (&Interaction, &mut BackgroundColor),
+        (&UiInteraction, &mut BackgroundColor),
         (
-            Changed<Interaction>,
+            Changed<UiInteraction>,
             Without<TabButton>,
             Or<(With<TabClose>, With<NewTabButton>, With<OverflowButton>, With<SideButton>)>,
         ),
@@ -941,12 +943,12 @@ pub fn hover(
 ) {
     for (interaction, tab, mut bg) in &mut tabs {
         let base = if tab.active { tab_active() } else { panel_bg() };
-        bg.0 = rgb(if *interaction == Interaction::None { base } else { tab_hover() });
+        bg.0 = rgb(if *interaction == UiInteraction::None { base } else { tab_hover() });
     }
     for (interaction, mut bg) in &mut buttons {
         // Transparent when idle: these sit inside a chip or a strip whose colour
         // already says what it is, and painting them their own background would
         // draw a second box around the icon.
-        bg.0 = if *interaction == Interaction::None { Color::NONE } else { rgb(hover_bg()) };
+        bg.0 = if *interaction == UiInteraction::None { Color::NONE } else { rgb(hover_bg()) };
     }
 }

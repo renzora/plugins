@@ -10,7 +10,7 @@
 
 [package]
 name = "auto_exposure"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Auto exposure — histogram metering with a keep-dark compensation curve."
 
@@ -32,4 +32,4 @@ category = "plugins"
 tags = ["rendering", "camera", "exposure", "tonemapping"]
 price_credits = 0
 thumbnail = "thumbnail.webp"
-min_engine_version = "r1-alpha7"
+min_engine_version = "r1-alpha8"

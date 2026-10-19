@@ -19,6 +19,8 @@
 use bevy::prelude::*;
 
 use renzora_ember::font::{icon_text, ui_font, EmberFonts};
+use renzora_ember::interaction::PASS_THROUGH;
+use renzora_ember::UiInteraction;
 use renzora_ember::reactive::tracked::{bind_bg, bind_display, bind_text, bind_text_color, bind_with, keyed_list};
 use renzora_ember::reactive::{KeyedSnapshot, Rx};
 use renzora_ember::theme::*;
@@ -150,7 +152,7 @@ fn kind_tab(commands: &mut Commands, fonts: &EmberFonts, kind: Kind) -> Entity {
                 ..default()
             },
             BackgroundColor(rgb(faint_bg())),
-            Interaction::default(),
+            UiInteraction::default(),
             KindTab(kind),
             Name::new("polyhaven-kind"),
         ))
@@ -161,13 +163,13 @@ fn kind_tab(commands: &mut Commands, fonts: &EmberFonts, kind: Kind) -> Entity {
     });
 
     let icon = icon_text(commands, &fonts.phosphor, kind.icon(), text_primary(), 13.0);
-    commands.entity(icon).insert(bevy::ui::FocusPolicy::Pass);
+    commands.entity(icon).insert(PASS_THROUGH);
     let label = commands
         .spawn((
             Text::new(kind.label()),
             ui_font(&fonts.ui, 12.0),
             TextColor(rgb(text_primary())),
-            bevy::ui::FocusPolicy::Pass,
+            PASS_THROUGH,
         ))
         .id();
     // The accent fill is a strong colour; `on_accent` is the palette's answer to
@@ -192,7 +194,7 @@ fn res_chip(commands: &mut Commands, fonts: &EmberFonts, res: &'static str) -> E
                 ..default()
             },
             BackgroundColor(rgb(faint_bg())),
-            Interaction::default(),
+            UiInteraction::default(),
             ResChip(res),
             Name::new("polyhaven-res"),
         ))
@@ -207,7 +209,7 @@ fn res_chip(commands: &mut Commands, fonts: &EmberFonts, res: &'static str) -> E
             Text::new(res),
             ui_font(&fonts.mono, 10.0),
             TextColor(rgb(text_primary())),
-            bevy::ui::FocusPolicy::Pass,
+            PASS_THROUGH,
         ))
         .id();
     bind_text_color(commands, label, move |rx| {
@@ -409,7 +411,7 @@ fn tile(commands: &mut Commands, fonts: &EmberFonts, row: &Row) -> Entity {
             },
             BackgroundColor(rgb(card_bg())),
             BorderColor::all(rgb(border())),
-            Interaction::default(),
+            UiInteraction::default(),
             TileAsset(row.slug.clone()),
             Name::new("polyhaven-tile"),
         ))
@@ -421,7 +423,7 @@ fn tile(commands: &mut Commands, fonts: &EmberFonts, row: &Row) -> Entity {
             Text::new(row.name.clone()),
             ui_font(&fonts.ui, 11.0),
             TextColor(rgb(text_primary())),
-            bevy::ui::FocusPolicy::Pass,
+            PASS_THROUGH,
         ))
         .id();
     let credit = commands
@@ -433,7 +435,7 @@ fn tile(commands: &mut Commands, fonts: &EmberFonts, row: &Row) -> Entity {
             }),
             ui_font(&fonts.ui, 9.0),
             TextColor(rgb(text_muted())),
-            bevy::ui::FocusPolicy::Pass,
+            PASS_THROUGH,
         ))
         .id();
 
@@ -453,7 +455,7 @@ fn state_label(commands: &mut Commands, fonts: &EmberFonts, slug: &str) -> Entit
             Text::new(""),
             ui_font(&fonts.mono, 9.0),
             TextColor(rgb(text_muted())),
-            bevy::ui::FocusPolicy::Pass,
+            PASS_THROUGH,
         ))
         .id();
 
@@ -514,18 +516,18 @@ fn thumbnail(commands: &mut Commands, fonts: &EmberFonts, row: &Row) -> Entity {
                 ..default()
             },
             BackgroundColor(rgb(hover_bg())),
-            bevy::ui::FocusPolicy::Pass,
+            PASS_THROUGH,
         ))
         .id();
 
     let placeholder = icon_text(commands, &fonts.phosphor, "image", text_muted(), 22.0);
-    commands.entity(placeholder).insert(bevy::ui::FocusPolicy::Pass);
+    commands.entity(placeholder).insert(PASS_THROUGH);
     commands.entity(frame).add_child(placeholder);
 
     let image = commands
         .spawn((
             ImageNode::default(),
-            bevy::ui::FocusPolicy::Pass,
+            PASS_THROUGH,
             Node {
                 position_type: PositionType::Absolute,
                 width: Val::Percent(100.0),
@@ -589,7 +591,7 @@ fn progress_bar(commands: &mut Commands, slug: &str) -> Entity {
             // Deliberately not a theme colour: this sits on a photograph, and a
             // palette track would vanish against a light one.
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)),
-            bevy::ui::FocusPolicy::Pass,
+            PASS_THROUGH,
         ))
         .id();
 
@@ -608,7 +610,7 @@ fn progress_bar(commands: &mut Commands, slug: &str) -> Entity {
                 ..default()
             },
             BackgroundColor(rgb(accent())),
-            bevy::ui::FocusPolicy::Pass,
+            PASS_THROUGH,
         ))
         .id();
 

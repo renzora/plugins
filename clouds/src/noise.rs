@@ -46,6 +46,7 @@ const DETAIL_WORKGROUP: u32 = 4;
 /// The baked fields, held in the main world so the material can reference them
 /// as ordinary asset handles.
 #[derive(Resource, Clone, ExtractResource)]
+#[extract_app(RenderApp)]
 pub struct CloudNoiseTextures {
     /// 2D atlas sampled by world XZ. `r` = Perlin-Worley silhouette,
     /// `g` = per-region remap window, `b` = height-gradient modifier.
@@ -141,6 +142,7 @@ impl FromWorld for CloudNoisePipelines {
                 shader_defs: vec![],
                 entry_point: Some(Cow::Borrowed(entry_point)),
                 immediate_size: 0,
+                constants: vec![],
                 zero_initialize_workgroup_memory: false,
             })
         };

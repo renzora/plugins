@@ -11,6 +11,7 @@ use std::hash::{Hash, Hasher};
 use bevy::prelude::*;
 
 use renzora_ember::font::{ui_font, EmberFonts};
+use renzora_ember::UiInteraction;
 use renzora_ember::panel::RegisterPanelContent;
 use renzora_ember::reactive::{KeyedSnapshot};
 use renzora_ember::reactive::Rx;
@@ -261,7 +262,7 @@ fn camera_row(commands: &mut Commands, fonts: &EmberFonts, info: &CameraInfo) ->
                 column_gap: Val::Px(6.0),
                 ..default()
             },
-            Interaction::default(),
+            UiInteraction::default(),
             CamSelect(e),
             Name::new("camera-select"),
         ))
@@ -301,7 +302,7 @@ fn camera_row(commands: &mut Commands, fonts: &EmberFonts, info: &CameraInfo) ->
                 ..default()
             },
             BackgroundColor(rgb((70, 70, 78))),
-            Interaction::default(),
+            UiInteraction::default(),
             CamToggle(e),
             Name::new("camera-toggle"),
         ))
@@ -340,11 +341,11 @@ fn camera_row(commands: &mut Commands, fonts: &EmberFonts, info: &CameraInfo) ->
 // ── Click systems ────────────────────────────────────────────────────────────
 
 fn camera_toggle_click(
-    q: Query<(&Interaction, &CamToggle), Changed<Interaction>>,
+    q: Query<(&UiInteraction, &CamToggle), Changed<UiInteraction>>,
     mut cameras: Query<&mut bevy::camera::Camera>,
 ) {
     for (interaction, toggle) in &q {
-        if *interaction == Interaction::Pressed {
+        if *interaction == UiInteraction::Pressed {
             if let Ok(mut c) = cameras.get_mut(toggle.0) {
                 c.is_active = !c.is_active;
             }
@@ -353,11 +354,11 @@ fn camera_toggle_click(
 }
 
 fn camera_select_click(
-    q: Query<(&Interaction, &CamSelect), Changed<Interaction>>,
+    q: Query<(&UiInteraction, &CamSelect), Changed<UiInteraction>>,
     mut state: ResMut<CameraDebugState>,
 ) {
     for (interaction, sel) in &q {
-        if *interaction == Interaction::Pressed {
+        if *interaction == UiInteraction::Pressed {
             state.selected_camera = Some(sel.0);
         }
     }

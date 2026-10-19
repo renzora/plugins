@@ -27,7 +27,8 @@
 //! enabling AutoExposureSettings on any entity Just Works.
 
 use bevy::camera::Exposure;
-use bevy::math::{cubic_splines::LinearSpline, vec2};
+use bevy::curve::cubic_splines::LinearSpline;
+use bevy::math::vec2;
 use bevy::post_process::auto_exposure::{
     AutoExposure, AutoExposureCompensationCurve, AutoExposurePlugin as BevyAePlugin,
 };

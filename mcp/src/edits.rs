@@ -24,7 +24,8 @@
 
 use bevy::ecs::reflect::ReflectComponent;
 use bevy::prelude::*;
-use bevy::reflect::{GetPath, PartialReflect};
+use bevy::reflect::enums::{DynamicEnum, DynamicVariant};
+use bevy::reflect::{GetPath, PartialReflect, ReflectRef};
 use renzora::avian3d::prelude::{Collider, RigidBody};
 use renzora::component::ScriptComponent;
 use renzora::{DefaultCamera, MaterialRef, MaterialResolved, MeshColor};
@@ -272,7 +273,12 @@ fn apply_property(target: &mut dyn PartialReflect, value: &PropertyValue) -> boo
             Box::new(*i as f64),
         ],
         PropertyValue::Bool(b) => vec![Box::new(*b)],
-        PropertyValue::String(s) => vec![Box::new(s.clone())],
+        // A string is also how a client names a variant of a field-less enum
+        // (a quality level, a debug view), so it is offered as that too.
+        PropertyValue::String(s) => vec![
+            Box::new(s.clone()),
+            Box::new(DynamicEnum::new(s.clone(), DynamicVariant::Unit)),
+        ],
         PropertyValue::Vec3(v) => vec![
             Box::new(*v),
             Box::new(Vec3::from_array(*v)),
@@ -289,6 +295,21 @@ fn apply_property(target: &mut dyn PartialReflect, value: &PropertyValue) -> boo
         .any(|candidate| target.try_apply(candidate.as_ref()).is_ok())
 }
 
+/// The variant name of an enum field, which the engine's field reader does not
+/// produce, so that setting one can still be undone back to it.
+fn enum_variant(world: &mut World, entity: Entity, component: &str, field: &str) -> Option<String> {
+    let registry = world.resource::<AppTypeRegistry>().clone();
+    let registry = registry.read();
+    let reflect_component =
+        crate::tools::find_type(&registry, component).and_then(|r| r.data::<ReflectComponent>())?;
+    let entity_ref = world.get_entity(entity).ok()?;
+    let reflected = reflect_component.reflect(entity_ref)?;
+    match reflected.reflect_path(field).ok()?.reflect_ref() {
+        ReflectRef::Enum(e) => Some(e.variant_name().to_string()),
+        _ => None,
+    }
+}
+
 /// Write a reflected field, undoably. Returns whether the write landed.
 pub fn set_field(
     world: &mut World,
@@ -297,7 +318,8 @@ pub fn set_field(
     field: &str,
     after: PropertyValue,
 ) -> bool {
-    let before = get_reflected_field(world, entity, component, field);
+    let before = get_reflected_field(world, entity, component, field)
+        .or_else(|| enum_variant(world, entity, component, field).map(PropertyValue::String));
     // Tried first, because a value that does not fit the field must not leave a
     // no-op sitting on the undo stack for the user to press Ctrl+Z through.
     if !write_field(world, entity, component, field, &after) {

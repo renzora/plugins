@@ -12,6 +12,7 @@ use bevy::prelude::*;
 use bevy::solari::realtime::SolariLighting;
 use renzora::{
     bool_field, AppEditorExt, FieldDef, FieldType, FieldValue, InspectorEntry, SolariGi,
+    SolariQuality,
 };
 
 pub(crate) fn register_inspectors(app: &mut App) {
@@ -40,6 +41,30 @@ fn solari_inspector_entry() -> InspectorEntry {
             }
         }),
         fields: vec![
+            // First, because it is the setting that moves frame rate and noise
+            // the most. The labels come from the contract enum so the dropdown
+            // and the saved value can't drift apart.
+            FieldDef {
+                name: "Quality",
+                field_type: FieldType::Enum {
+                    options: &SolariQuality::LABELS,
+                },
+                get_fn: |world, entity| {
+                    world
+                        .get::<SolariGi>(entity)
+                        .map(|s| FieldValue::Enum(s.quality.label().to_string()))
+                },
+                set_fn: |world, entity, value| {
+                    if let FieldValue::Enum(label) = value {
+                        if let (Some(quality), Some(mut s)) = (
+                            SolariQuality::from_label(&label),
+                            world.get_mut::<SolariGi>(entity),
+                        ) {
+                            s.quality = quality;
+                        }
+                    }
+                },
+            },
             // Solari traces visibility instead of sampling shadow maps, and its
             // camera carries `SkipDeferredLighting` — which removes the only
             // pass that would read one. Every cascade and point-light cubemap is

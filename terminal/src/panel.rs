@@ -29,9 +29,11 @@ use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::input::ButtonState;
 use bevy::prelude::*;
 use bevy::text::{TextBackgroundColor, TextLayoutInfo, Underline};
-use bevy::ui::{ComputedNode, FocusPolicy, RelativeCursorPosition};
+use bevy::ui::{ComputedNode, RelativeCursorPosition};
 
 use renzora_ember::font::{ui_font, EmberFonts};
+use renzora_ember::interaction::{BLOCK, PASS_THROUGH};
+use renzora_ember::UiInteraction;
 use renzora_ember::theme::{border, panel_bg, rgb, selection, text_muted, text_primary};
 use renzora_ember::widgets::clipboard;
 
@@ -155,12 +157,12 @@ pub fn build(commands: &mut Commands, fonts: &EmberFonts) -> Entity {
                 ..default()
             },
             BackgroundColor(rgb(panel_bg())),
-            // `Interaction` is what tells the panel it was clicked, and
-            // `FocusPolicy::Block` stops the click continuing through to the
+            // `UiInteraction` is what tells the panel it was clicked, and
+            // `BLOCK` stops the click continuing through to the
             // viewport behind the dock - which would otherwise read a click in
             // the terminal as a click in the scene and change the selection.
-            Interaction::default(),
-            FocusPolicy::Block,
+            UiInteraction::default(),
+            BLOCK,
             TermRoot,
             Name::new("terminal-root"),
         ))
@@ -193,7 +195,7 @@ pub fn build(commands: &mut Commands, fonts: &EmberFonts) -> Entity {
                 overflow: Overflow::clip(),
                 ..default()
             },
-            FocusPolicy::Pass,
+            PASS_THROUGH,
             Name::new("terminal-body"),
         ))
         .id();
@@ -213,7 +215,7 @@ pub fn build(commands: &mut Commands, fonts: &EmberFonts) -> Entity {
             // and this is the component that reports them without the panel
             // having to know where the dock put it.
             RelativeCursorPosition::default(),
-            FocusPolicy::Pass,
+            PASS_THROUGH,
             TermGrid,
             Name::new("terminal-grid"),
         ))
@@ -231,7 +233,7 @@ pub fn build(commands: &mut Commands, fonts: &EmberFonts) -> Entity {
             // drag: a press anywhere on it is a jump to that fraction of the
             // history, and holding is the same thing every frame.
             RelativeCursorPosition::default(),
-            FocusPolicy::Block,
+            BLOCK,
             TermScrollTrack,
             Name::new("terminal-scrollbar"),
         ))
@@ -251,7 +253,7 @@ pub fn build(commands: &mut Commands, fonts: &EmberFonts) -> Entity {
                 ..default()
             },
             BackgroundColor(rgb(border())),
-            FocusPolicy::Pass,
+            PASS_THROUGH,
             TermScrollThumb,
             Name::new("terminal-scrollbar-thumb"),
         ))
@@ -273,7 +275,7 @@ pub fn build(commands: &mut Commands, fonts: &EmberFonts) -> Entity {
             ui_font(&fonts.mono, FONT_PX),
             TextLayout::no_wrap(),
             Visibility::Hidden,
-            FocusPolicy::Pass,
+            PASS_THROUGH,
             TermProbe,
             Name::new("terminal-probe"),
         ))
@@ -469,7 +471,7 @@ fn spawn_row(
                 overflow: Overflow::clip(),
                 ..default()
             },
-            FocusPolicy::Pass,
+            PASS_THROUGH,
             Name::new(format!("terminal-row-{index}")),
         ))
         .id();
@@ -479,7 +481,7 @@ fn spawn_row(
             ui_font(&fonts.mono, FONT_PX),
             TextColor(rgb(text_primary())),
             TextLayout::no_wrap(),
-            FocusPolicy::Pass,
+            PASS_THROUGH,
         ))
         .id();
     commands.entity(root).add_child(text);
@@ -662,14 +664,14 @@ fn triple((r, g, b): (u8, u8, u8)) -> [u8; 3] {
 pub fn focus(
     mut term: ResMut<Terminal>,
     mouse: Res<ButtonInput<MouseButton>>,
-    roots: Query<&Interaction, With<TermRoot>>,
+    roots: Query<&UiInteraction, With<TermRoot>>,
 ) {
     if !mouse.just_pressed(MouseButton::Left) {
         return;
     }
     // Anywhere in the panel, the strip included: clicking a tab should leave you
     // able to type into it without a second click on the grid.
-    let inside = roots.single().is_ok_and(|i| *i != Interaction::None);
+    let inside = roots.single().is_ok_and(|i| *i != UiInteraction::None);
     if term.focused != inside {
         term.focused = inside;
         // The cursor changes appearance with focus, so the row it is on has to
@@ -833,10 +835,10 @@ fn paste(term: &mut Terminal) {
 pub fn wheel(
     mut term: ResMut<Terminal>,
     mut events: MessageReader<MouseWheel>,
-    roots: Query<&Interaction, With<TermRoot>>,
+    roots: Query<&UiInteraction, With<TermRoot>>,
     strips: Query<&RelativeCursorPosition, With<crate::strip::TermStrip>>,
 ) {
-    let hovered = roots.single().is_ok_and(|i| *i != Interaction::None);
+    let hovered = roots.single().is_ok_and(|i| *i != UiInteraction::None);
     // The strip is inside the panel, so the root reports it as hovered too. The
     // wheel there belongs to the tab list, not to the shell's history: a side
     // strip's scroll view reads the same events, and scrolling both at once

@@ -93,6 +93,7 @@ impl Default for WaterSimUniform {
 /// The cascade maps the water material samples. Created in the main world so
 /// the material can hold ordinary `Handle<Image>`s; written by compute.
 #[derive(Resource, Clone, ExtractResource)]
+#[extract_app(RenderApp)]
 pub struct WaterSimTextures {
     /// `xyz` = displacement, one array layer per cascade.
     pub displacement: Handle<Image>,
@@ -105,6 +106,7 @@ pub struct WaterSimTextures {
 
 /// What the main world tells the simulation to do this frame.
 #[derive(Resource, Clone, ExtractResource)]
+#[extract_app(RenderApp)]
 pub struct WaterSimParams {
     pub uniform: WaterSimUniform,
     /// Rebuild the time-independent spectrum (a parameter changed).
@@ -257,6 +259,7 @@ impl FromWorld for WaterSimPipelines {
                 shader_defs: vec![],
                 entry_point: Some(Cow::Borrowed("main")),
                 immediate_size: 0,
+                constants: vec![],
                 zero_initialize_workgroup_memory: false,
             })
         };
@@ -365,6 +368,7 @@ fn prepare_water_sim(
         ],
         entry_point: Some(Cow::Borrowed("main")),
         immediate_size: 0,
+        constants: vec![],
         zero_initialize_workgroup_memory: false,
     });
 

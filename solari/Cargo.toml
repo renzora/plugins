@@ -4,7 +4,7 @@
 # plugin as an ordinary cargo project — it will not be overwritten.
 [package]
 name = "solari"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 [lib]
@@ -21,4 +21,4 @@ category = "plugins"
 description = "Hardware ray-traced global illumination wrapping Bevy's experimental bevy_solari: realtime direct and indirect lighting, fully dynamic, with nothing to bake."
 tags = ["rendering", "lighting", "raytracing", "global-illumination"]
 price_credits = 0
-min_engine_version = "r1-alpha7"
+min_engine_version = "r1-alpha8"

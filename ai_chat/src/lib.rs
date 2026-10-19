@@ -30,6 +30,7 @@ use bevy::prelude::*;
 use renzora::core::RenzoraShellExt;
 use renzora_ember::font::{icon_text, ui_font, EmberFonts};
 use renzora_ember::panel::RegisterPanelContent;
+use renzora_ember::UiInteraction;
 use renzora_ember::reactive::{KeyedSnapshot};
 use renzora_ember::reactive::Rx;
 use renzora_ember::reactive::tracked::{bind_2way, bind_bg, bind_display, bind_text, keyed_list};
@@ -510,7 +511,7 @@ fn build_panel(commands: &mut Commands, fonts: &EmberFonts) -> Entity {
                 ..default()
             },
             BackgroundColor(rgb(tab_active())),
-            Interaction::default(),
+            UiInteraction::default(),
             renzora_ember::cursor_icon::HoverCursor(bevy::window::SystemCursorIcon::Pointer),
             SendBtn,
             Name::new("send-stop"),
@@ -912,10 +913,10 @@ fn message_row(commands: &mut Commands, fonts: &EmberFonts, msg: &ChatMsg) -> En
 /// "Choose…" next to the docs-folder input → native folder picker. The
 /// input reflects the new value through its binding.
 fn docs_browse_click(
-    buttons: Query<&Interaction, (With<DocsBrowseBtn>, Changed<Interaction>)>,
+    buttons: Query<&UiInteraction, (With<DocsBrowseBtn>, Changed<UiInteraction>)>,
     mut commands: Commands,
 ) {
-    if buttons.iter().any(|i| *i == Interaction::Pressed) {
+    if buttons.iter().any(|i| *i == UiInteraction::Pressed) {
         // Web: no picker to open. `pick_folder` is synchronous and rfd's web
         // backend has no folder support at all — the browser's equivalent is
         // the async `showDirectoryPicker()`. The button is inert until the web
@@ -937,10 +938,10 @@ fn docs_browse_click(
 }
 
 fn refresh_click(
-    buttons: Query<&Interaction, (With<RefreshBtn>, Changed<Interaction>)>,
+    buttons: Query<&UiInteraction, (With<RefreshBtn>, Changed<UiInteraction>)>,
     mut commands: Commands,
 ) {
-    if buttons.iter().any(|i| *i == Interaction::Pressed) {
+    if buttons.iter().any(|i| *i == UiInteraction::Pressed) {
         commands.queue(start_models_fetch);
     }
 }
@@ -1039,17 +1040,17 @@ fn fetch_models(preset: &Preset, url: &str, key: &str) -> Result<Vec<String>, St
 /// Starts a request on Send-click or when the prompt ends with a newline
 /// (the input widget inserts `\n` on Enter — used here as "submit").
 fn send_prompt(
-    send: Query<&Interaction, (With<SendBtn>, Changed<Interaction>)>,
-    clear: Query<&Interaction, (With<ClearBtn>, Changed<Interaction>)>,
+    send: Query<&UiInteraction, (With<SendBtn>, Changed<UiInteraction>)>,
+    clear: Query<&UiInteraction, (With<ClearBtn>, Changed<UiInteraction>)>,
     mut inputs: Query<(&mut EmberTextInput, Has<PromptInput>)>,
     mut texts: Query<(&mut Text, &mut TextColor)>,
     mut chat: ResMut<AiChat>,
 ) {
-    if clear.iter().any(|i| *i == Interaction::Pressed) && chat.stream.is_none() {
+    if clear.iter().any(|i| *i == UiInteraction::Pressed) && chat.stream.is_none() {
         chat.messages.clear();
     }
 
-    let pressed = send.iter().any(|i| *i == Interaction::Pressed);
+    let pressed = send.iter().any(|i| *i == UiInteraction::Pressed);
     if chat.stream.is_some() {
         if pressed {
             // Stop: dropping the receiver makes the worker thread abort on

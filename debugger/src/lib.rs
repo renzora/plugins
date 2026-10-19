@@ -1,11 +1,10 @@
 //! Debugging panels and profiling support for the Renzora editor.
 //!
 //! Panels: System Profiler, Memory Profiler, Performance, Render Stats, ECS
-//! Stats, Camera Debug, Culling Debug, Material Resolver, Lumen, Scripting.
+//! Stats, Camera Debug, Culling Debug, Material Resolver, Scripting.
 //! All panels are bevy-native (ember); their content lives in [`native`] and
 //! reads the per-frame snapshot resources kept current by the backend-agnostic
 //! `update_*` systems in [`state`] (plus the scripting diag updater below).
-//! The Lumen panel reads `renzora::LumenDiagState`, produced by the GI plugin.
 
 pub mod native;
 pub mod panels;
@@ -25,11 +24,6 @@ use state::*;
 // ============================================================================
 // Diagnostic snapshot updaters (scripting)
 // ============================================================================
-//
-// The Lumen diagnostics snapshot (`renzora::LumenDiagState`) is produced by the
-// GI plugin (`renzora_lumen`) under its `editor` feature, not here — the plugin
-// is a cdylib and owns the internal voxel/bake types it reads. The native Lumen
-// panel just reads the contract resource.
 
 // `ScriptInventory` rather than `Res<ScriptEngine>` plus a `ScriptComponent`
 // query: this panel is a native plugin, which links `bevy`, `renzora` and
@@ -235,7 +229,6 @@ impl Plugin for DebuggerPlugin {
             .register_shell_panel("camera_debug", "Camera Debug", "video-camera", "Debug")
             .register_shell_panel("culling_debug", "Culling", "scissors", "Debug")
             .register_shell_panel("material_resolver_diag", "Material Diag", "palette", "Debug")
-            .register_shell_panel("lumen_diag", "Lumen Diag", "lightbulb", "Debug")
             .register_shell_panel("scripting_diag", "Scripting Diag", "bug", "Debug")
             .register_shell_panel("ui_reactivity", "UI Reactivity", "lightning", "Debug")
             .register_shell_panel("ui_layout", "UI Layout", "layout", "Debug")
@@ -256,7 +249,7 @@ impl Plugin for DebuggerPlugin {
 /// subsystem diagnostics on the right.
 ///
 /// The subsystem panels share one slot as tabs rather than each taking space.
-/// There are four of them and they are consulted one at a time.
+/// There are three of them and they are consulted one at a time.
 fn debug_workspace() -> DockTree {
     DockTree::horizontal(
         DockTree::vertical(DockTree::leaf("hierarchy"), DockTree::leaf("performance"), 0.6),
@@ -291,7 +284,6 @@ fn debug_workspace() -> DockTree {
                     tabs: vec![
                         "scene_diagnostics".into(),
                         "material_resolver_diag".into(),
-                        "lumen_diag".into(),
                         "scripting_diag".into(),
                     ],
                     active_tab: 0,
