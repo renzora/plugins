@@ -76,6 +76,27 @@ pub(super) fn editor_state(world: &mut World) -> ToolReply {
             };
             out.push_str(&format!("frame: {frame_time:.2} ms ({fps:.0} fps)\n"));
         }
+
+        // Bevy's per-pass GPU timings (`render/<pass>/elapsed_gpu`), slowest
+        // first. Frame time alone cannot say whether a slow frame is the GPU or
+        // the CPU, or which pass, and guessing that by toggling features was
+        // misleading: the averages lag by seconds after every change.
+        let mut passes: Vec<(String, f64)> = diagnostics
+            .iter()
+            .filter_map(|d| {
+                let path = d.path().as_str();
+                let pass = path.strip_prefix("render/")?.strip_suffix("/elapsed_gpu")?;
+                Some((pass.to_string(), d.average()?))
+            })
+            .filter(|(_, ms)| *ms >= 0.05)
+            .collect();
+        passes.sort_by(|a, b| b.1.total_cmp(&a.1));
+        if !passes.is_empty() {
+            out.push_str("gpu passes (ms, slowest first):\n");
+            for (pass, ms) in passes.iter().take(25) {
+                out.push_str(&format!("  {ms:7.2}  {pass}\n"));
+            }
+        }
     }
 
     ToolReply::Text(out)
