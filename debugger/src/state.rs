@@ -411,11 +411,54 @@ impl Default for CullingDebugState {
 // Update Systems
 // ============================================================================
 
+/// What counts as an entity in the scene: the rule the Hierarchy panel uses to
+/// pick its tree, so the number here is the number of rows you could see there.
+///
+/// Counting every entity in the `World` (GH #85) reported a two-entity scene as
+/// about four thousand, because the editor's own interface is entities too:
+/// every panel, button and label is a `bevy_ui` node. So a UI node counts only
+/// when it is authored game UI (`UiCanvas`/`UiWidget`), and `HideInHierarchy`
+/// takes out the editor's helpers. Being a filter rather than a per-entity
+/// check, Bevy rejects the editor's nodes a whole archetype at a time, which
+/// matters to a system that runs every tenth of a second.
+///
+/// The ECS panel keeps its own total of everything in the `World`. That is the
+/// question it exists to answer.
+type SceneEntity = (
+    With<Name>,
+    Without<renzora::HideInHierarchy>,
+    Without<bevy::input::gamepad::Gamepad>,
+    Or<(
+        Without<bevy::ui::Node>,
+        With<renzora_ember::game_ui::UiCanvas>,
+        With<renzora_ember::game_ui::UiWidget>,
+    )>,
+);
+
+/// Whether `e` sits under a `HideInHierarchy` root. The marker is placed on
+/// the root of an editor subtree (the gizmos, the preview scenes), and its
+/// children do not carry it themselves.
+fn has_hidden_ancestor(
+    mut e: Entity,
+    parents: &Query<&ChildOf>,
+    hidden: &Query<(), With<renzora::HideInHierarchy>>,
+) -> bool {
+    while let Ok(c) = parents.get(e) {
+        e = c.parent();
+        if hidden.contains(e) {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn update_diagnostics_state(
     diagnostics: Res<DiagnosticsStore>,
     mut state: ResMut<DiagnosticsState>,
     time: Res<Time>,
-    entities: Query<Entity>,
+    entities: Query<Entity, SceneEntity>,
+    parents: Query<&ChildOf>,
+    hidden: Query<(), With<renzora::HideInHierarchy>>,
 ) {
     if !state.enabled {
         return;
@@ -441,7 +484,10 @@ pub fn update_diagnostics_state(
         }
     }
 
-    let entity_count = entities.iter().count();
+    let entity_count = entities
+        .iter()
+        .filter(|&e| !has_hidden_ancestor(e, &parents, &hidden))
+        .count();
     state.entity_count = entity_count;
     DiagnosticsState::push_sample(&mut state.entity_count_history, entity_count as f32);
 
