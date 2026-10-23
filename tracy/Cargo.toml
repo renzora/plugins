@@ -5,7 +5,7 @@
 
 [package]
 name = "tracy"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Stream the engine's diagnostics to a running Tracy profiler."
 
@@ -53,7 +53,14 @@ renzora_ember = { path = "../../engine/crates/renzora_ember" }
 # `default-features = false` drops `enable`'s siblings we do not use (call-stack
 # sampling, system tracing) — each costs a background thread and, on Windows,
 # elevated-privilege probing at startup.
-tracy-client = { version = "=0.18.5", default-features = false, features = ["enable", "ondemand"] }
+#
+# `delayed-init`, because without it the C++ client builds its profiler the
+# moment the library is loaded, not when the toggle turns it on: every editor
+# start, profiled or not, initialised Tracy's symbol handler and printed
+# "ERROR: SymInitialize FAILED with code 87" to the console (the editor process
+# has already initialised it). With it, nothing exists until `Client::start()`,
+# which `pump` calls only once the toggle is on.
+tracy-client = { version = "=0.18.5", default-features = false, features = ["enable", "ondemand", "delayed-init"] }
 # ── Pinned because this version IS the wire protocol ─────────────────────────
 # `tracy-client-sys` vendors the Tracy C++ client, so its version decides which
 # protocol the plugin speaks, and a profiler on any other protocol is refused

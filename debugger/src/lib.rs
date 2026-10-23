@@ -11,7 +11,7 @@ pub mod panels;
 pub mod state;
 
 use bevy::diagnostic::{
-    EntityCountDiagnosticsPlugin, FrameTimeDiagnosticsPlugin, SystemInformationDiagnosticsPlugin,
+    EntityCountDiagnosticsPlugin, FrameTimeDiagnosticsPlugin,
 };
 use bevy::prelude::*;
 
@@ -83,9 +83,11 @@ impl Plugin for DebuggerPlugin {
         if !app.is_plugin_added::<EntityCountDiagnosticsPlugin>() {
             app.add_plugins(EntityCountDiagnosticsPlugin::default());
         }
-        if !app.is_plugin_added::<SystemInformationDiagnosticsPlugin>() {
-            app.add_plugins(SystemInformationDiagnosticsPlugin);
-        }
+        // No `SystemInformationDiagnosticsPlugin`: Bevy compiles its sysinfo
+        // half out whenever `dynamic_linking` is on, which it always is for a
+        // build that loads plugins, so it only ever logged "This platform
+        // and/or configuration is not supported!" and reported nothing. The
+        // CPU and memory rows hide while they have no reading.
 
         // Real per-render-pass CPU/GPU timings (`render/<pass>/elapsed_{cpu,gpu}`).
         // This is the ONLY source of genuine GPU time; without it the render-stats
