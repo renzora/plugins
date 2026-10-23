@@ -560,6 +560,20 @@ fn catalogue() -> Value {
             }
         },
         {
+            "name": "key_pose",
+            "description": "Key bones' current pose at the timeline's playhead, into the clip open in the timeline, as pressing K over the viewport does. Pose a bone first with set_transform; an unkeyed pose is dropped when the playhead moves. Needs a clip open in the timeline.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "bones": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "The bones to key. Omit to key the selected ones."
+                    }
+                }
+            }
+        },
+        {
             "name": "set_autosave",
             "description": "Pause or resume the editor's autosave for this session only; the user's saved preference is untouched. Pause it before experimenting, so test edits are not written into a real scene file, and so an unsaved tab does not pop a blocking Save As dialog. Omit enabled to read the current state.",
             "inputSchema": {

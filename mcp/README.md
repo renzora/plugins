@@ -62,6 +62,7 @@ the console of whatever project is open.
 | `list_presets` / `spawn_preset` | Everything the Add Entity menu offers: cameras, terrain, environment, probes |
 | `set_default_camera` | Choose the scene camera play mode looks through |
 | `undo` | Step the scene's undo history back, or forward with `redo` |
+| `key_pose` | Key bones' current pose at the timeline's playhead, as K over the viewport does |
 | `set_autosave` | Pause autosave for this session, so test edits are not saved into a real scene |
 | `select_entities` | Set the editor's selection |
 | `set_view` | Move the viewport camera: eye and target, frame one entity, or frame all |

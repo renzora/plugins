@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use renzora::serde_json::Value;
 use renzora::undo::{redo_once, undo_once, UndoContext, UndoStacks};
 use renzora::{
-    AutoSaveSettings, CameraViewRequest, CreateNodeRequested, EditorSelection, ExportRequested, ImportPick,
+    ActiveTimeline, AutoSaveSettings, CameraViewRequest, KeyframeRequests, CreateNodeRequested, EditorSelection, ExportRequested, ImportPick,
     ImportRequested, IsolationMode, NewSceneRequested, OpenCodeEditorFile, OpenScenePathRequested,
     OpenSceneRequested, OpenUiTemplateFile, PlayModeState, SaveAsSceneRequested,
     SaveSceneRequested, ToggleCommandPaletteRequested, ToggleSettingsRequested, TutorialRequested,
@@ -160,6 +160,60 @@ pub(super) fn select_entities(world: &mut World, args: &Value) -> ToolReply {
         1 => "selected 1 entity".to_string(),
         n => format!("selected {n} entities"),
     })
+}
+
+/// Key bones' current pose into the clip open in the timeline, at the playhead,
+/// as pressing K over the viewport does.
+///
+/// The bones named, or the selected ones when none are. Through the
+/// `KeyframeRequests` queue the inspector's keyframe button uses: the timeline
+/// keys a request for a bone's Transform into that bone's track. A key press is
+/// not something a tool can send, and this is the same result without one.
+///
+/// Refused when no clip is open, because the timeline only drains the queue
+/// while it has one, and a request left in it would key later, into whatever
+/// clip came next.
+pub(super) fn key_pose(world: &mut World, args: &Value) -> ToolReply {
+    let bones: Vec<Entity> = match args.get("bones").and_then(Value::as_array) {
+        Some(list) => {
+            let mut out = Vec::with_capacity(list.len());
+            for raw in list {
+                let Some(entity) = value_to_entity(raw) else {
+                    return ToolReply::Failed(format!("not an entity id: {raw}"));
+                };
+                out.push(entity);
+            }
+            out
+        }
+        None => world.get_resource::<EditorSelection>().map(|s| s.get_all()).unwrap_or_default(),
+    };
+    if bones.is_empty() {
+        return ToolReply::Failed("nothing to key: name the bones, or select them first".into());
+    }
+    if !world.get_resource::<ActiveTimeline>().is_some_and(|t| t.is_open()) {
+        return ToolReply::Failed(
+            "no clip is open in the timeline to key into: select the model and pick a clip first".into(),
+        );
+    }
+    let (keyable, skipped): (Vec<Entity>, Vec<Entity>) = bones
+        .into_iter()
+        .partition(|&e| world.get::<bevy::animation::AnimationTargetId>(e).is_some());
+    if keyable.is_empty() {
+        return ToolReply::Failed("none of those is a bone of the animated model".into());
+    }
+    let mut requests = world.get_resource_or_insert_with(KeyframeRequests::default);
+    for &bone in &keyable {
+        requests.push(bone, "Transform", "pose");
+    }
+    let mut reply = match keyable.len() {
+        1 => "keyed 1 bone at the playhead".to_string(),
+        n => format!("keyed {n} bones at the playhead"),
+    };
+    if !skipped.is_empty() {
+        let ids: Vec<String> = skipped.iter().map(|&e| entity_id(e)).collect();
+        reply.push_str(&format!("; skipped {} (not bones): {}", ids.len(), ids.join(", ")));
+    }
+    ToolReply::Text(reply)
 }
 
 pub(super) fn set_play_mode(world: &mut World, args: &Value) -> ToolReply {

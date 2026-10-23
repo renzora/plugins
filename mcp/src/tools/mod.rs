@@ -110,6 +110,7 @@ fn dispatch(world: &mut World, call: ToolCall) {
         "set_play_mode" => editor::set_play_mode(world, &args),
         "save_scene" => editor::save_scene(world),
         "undo" => editor::undo_redo(world, &args),
+        "key_pose" => editor::key_pose(world, &args),
         "set_autosave" => editor::set_autosave(world, &args),
         "list_assets" => content::list_assets(world, &args),
         "set_material" => content::set_material(world, &args),
