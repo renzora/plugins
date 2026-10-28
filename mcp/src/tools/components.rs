@@ -17,8 +17,9 @@ use crate::{edits, ToolReply};
 /// caller named.
 ///
 /// This is the tool that stops the catalogue needing a new entry per component
-/// type. A plugin can only link three crates, so `Collider` and `DirectionalLight`
-/// are reachable only because the contract crate re-exports them: everything
+/// type. A plugin can only link three crates, so `CollisionShapeData` and
+/// `DirectionalLight` are reachable only because the contract crate holds or
+/// re-exports them: everything
 /// else in the engine, and everything in the user's own game, is reachable ONLY
 /// through the type registry. Going through reflection means a component this
 /// plugin has never heard of works the day it is registered.

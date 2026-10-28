@@ -10,7 +10,7 @@
 
 [package]
 name = "mcp"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2021"
 description = "Lets Claude Code, or any MCP client, see and drive the open editor: build scenes, set materials, import models, place particles and UI, run scripts and play mode."
 
@@ -42,11 +42,10 @@ bevy = "0.19"
 # privately resolved serde is a DIFFERENT trait from the engine's, so the moment
 # a Bevy type has to cross it the derive stops compiling.
 #
-# `physics_3d` re-exports the engine's own avian, which is the only way to name
-# `Collider` and mean the type the physics step reads. Linking avian directly
-# would compile a second one with different `TypeId`s: the colliders would exist,
-# look right in the inspector, and collide with nothing.
-renzora = { path = "../../engine/crates/renzora", default-features = false, features = ["editor", "physics_3d"] }
+# Colliders are made through the engine's physics API (`renzora::physics`), so
+# no physics engine is named here and they work on whichever backend the
+# project selected.
+renzora = { path = "../../engine/crates/renzora", default-features = false, features = ["editor"] }
 # For `add_ui`, which mounts a template through the game UI's own spawn helper
 # rather than keeping a second copy of how a canvas is laid out and named.
 renzora_ember = { path = "../../engine/crates/renzora_ember" }

@@ -26,7 +26,7 @@ const PROTOCOL_VERSION: &str = "2025-06-18";
 /// builds a native plugin by calling rustc directly and cargo is what sets that
 /// variable. It compiled here only while the editor had been started through
 /// cargo and inherited it; launched any other way, the plugin failed to build.
-const SERVER_VERSION: &str = "1.0.0";
+const SERVER_VERSION: &str = "1.2.0";
 
 /// How long a tool may take before the caller is told it did not finish.
 ///
@@ -42,6 +42,11 @@ const SCREENSHOT_TIMEOUT: Duration = Duration::from_secs(45);
 /// Imports get the longest: converting a large FBX, its textures and its
 /// materials is real work, done inside one engine frame.
 const IMPORT_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Input plays out a step a frame and waits behind any run already queued, so a
+/// long drag or a paragraph of typing at a slow frame rate needs more than the
+/// default. Longer than the player's own limit, so the caller hears its reason.
+const INPUT_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// How long without a frame before a call is refused outright as frozen.
 /// Comfortably longer than the slowest real frame, a project load, so a busy
@@ -133,8 +138,9 @@ fn call(id: Value, params: &Value, tx: &Sender<ToolCall>, state: &ServerState) -
         .unwrap_or_else(|| json!({}));
 
     let timeout = match name {
-        "screenshot" => SCREENSHOT_TIMEOUT,
+        "screenshot" | "game_screenshot" => SCREENSHOT_TIMEOUT,
         "import_model" => IMPORT_TIMEOUT,
+        n if crate::input::is_input_tool(n) => INPUT_TIMEOUT,
         _ => CALL_TIMEOUT,
     };
 
@@ -217,7 +223,11 @@ it back with Ctrl+Z, except despawn_entity. Content is file-based: a material, \
 model, particle effect or UI template is a file in the project, and a path outside \
 the project is copied in first. list_assets shows what the project has, and with \
 source engine the engine's own presets. Save with save_scene when the user is \
-happy; nothing is written to the scene file until then.";
+happy; nothing is written to the scene file until then. For anything no other tool \
+covers, use the editor as a person does: ui_find lists what can be clicked, in the \
+same pixels as screenshot, and click, drag, scroll, press_keys and type_text act \
+through real mouse and keyboard input, shown to the user as an orange MCP cursor. \
+Take a screenshot after acting to see the result.";
 
 /// An entity id, described once so every tool that takes one agrees.
 fn entity_arg(description: &str) -> Value {
@@ -303,8 +313,36 @@ fn catalogue() -> Value {
         },
         {
             "name": "screenshot",
-            "description": "A PNG of the editor window as it looks now, including the panels and the viewport.",
+            "description": "A PNG of the editor window as it looks now, including the panels and the viewport. It does not show the running game's own window; use game_screenshot for that.",
             "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "game_screenshot",
+            "description": "A PNG of the game Play is running, taken by the game itself. While a game runs the editor mirrors it, so scene_tree and inspect_entity show its live state and set_component_field changes it; this adds the picture. Needs set_play_mode play first, and a second or two for the game to connect.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "game_input",
+            "description": "Press keys and gamepad controls in the running game, all at once, each released after its hold time. Gamepad input arrives on a virtual pad the game sees as a real one. To walk: a gamepad_axis LeftStickY of 1 held for a second. Follow with game_screenshot to see the result.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "actions": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "key": { "type": "string", "description": "A KeyCode name: KeyW, Space, ShiftLeft, Enter, ArrowUp." },
+                                "gamepad_button": { "type": "string", "description": "A GamepadButton name: South (A / Cross), East, West, North, RightTrigger2, LeftTrigger2, Start, DPadUp." },
+                                "gamepad_axis": { "type": "string", "description": "A GamepadAxis name: LeftStickX, LeftStickY (up is positive), RightStickX, RightStickY." },
+                                "value": { "type": "number", "description": "Axis position -1 to 1 (required for an axis), or button pressure 0 to 1 (default 1)." },
+                                "hold_seconds": { "type": "number", "description": "How long before it is released (default 0.15)." }
+                            }
+                        }
+                    }
+                },
+                "required": ["actions"]
+            }
         },
         {
             "name": "spawn_entity",
@@ -336,7 +374,7 @@ fn catalogue() -> Value {
                 "type": "object",
                 "properties": {
                     "entity": entity_arg("The entity to add it to."),
-                    "component": { "type": "string", "description": "Short name, such as PointLight, Collider or your own component's type name." },
+                    "component": { "type": "string", "description": "Short name, such as PointLight, CollisionShapeData or your own component's type name." },
                     "fields": { "type": "object", "description": "Field paths to values, applied after the component is added. Same value rules as set_component_field." }
                 },
                 "required": ["entity", "component"]
@@ -617,23 +655,23 @@ fn catalogue() -> Value {
         },
         {
             "name": "import_model",
-            "description": "Import a 3D model (glb, gltf, fbx, obj, stl, ply, dae, usd, abc) into the project. A file outside the project is copied into models/<name>/ first; the engine converts it to .glb with its textures and materials. Answers when done, with the .glb path to pass to spawn_model. Large files can take a while.",
+            "description": "Import 3D models (glb, gltf, fbx, obj, stl, ply, dae, usd, abc) into the project. Files from outside the project open the editor's import window loaded with them, exactly as Import > Files does but with no file dialog: it converts them, the user sees the preview, and its Import button commits (click it, or leave it to the user). Animation-only FBX files such as skinless Mixamo clips become .anim clips there. That call answers at once; list_assets finds the .glb after the commit. One file already inside the project is instead converted where it stands, and the call answers when done with the .glb path to pass to spawn_model.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "The model file, absolute or project-relative. One inside the project is converted where it stands, and a non-GLB source is then replaced by the .glb." },
-                    "folder": { "type": "string", "description": "Project folder to copy into (default models)." }
-                },
-                "required": ["path"]
+                    "path": { "type": "string", "description": "One model file, absolute or project-relative." },
+                    "paths": { "type": "array", "items": { "type": "string" }, "description": "Several files from outside the project, imported in one window, such as a character and its animation clips." },
+                    "folder": { "type": "string", "description": "Project folder the import window starts with as its destination (default models)." }
+                }
             }
         },
         {
             "name": "spawn_model",
-            "description": "Place an imported .glb in the scene. The model loads over the next frames and its meshes appear as children.",
+            "description": "Place an imported model (.rvg, or .glb) in the scene. The model loads over the next frames and its meshes appear as children.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "The .glb, as import_model or list_assets gave it." },
+                    "path": { "type": "string", "description": "The .rvg or .glb, as import_model or list_assets gave it." },
                     "name": { "type": "string", "description": "Name in the hierarchy (default the file name)." },
                     "position": vec3_arg("World position (default origin)."),
                     "rotation": vec3_arg("Euler XYZ rotation in degrees."),
@@ -705,6 +743,9 @@ fn catalogue() -> Value {
     if let (Some(list), Value::Array(more)) = (tools.as_array_mut(), more) {
         list.extend(more);
     }
+    if let (Some(list), Value::Array(input)) = (tools.as_array_mut(), crate::input::catalogue()) {
+        list.extend(input);
+    }
     annotate(&mut tools);
     tools
 }
@@ -729,7 +770,7 @@ fn annotate(tools: &mut Value) {
         let (read_only, destructive) = match name.as_str() {
             // Looking, in every case.
             "editor_state" | "read_console" | "scene_tree" | "inspect_entity" | "screenshot"
-            | "list_shapes" | "list_assets" | "list_presets" => (true, false),
+            | "list_shapes" | "list_assets" | "list_presets" | "ui_find" => (true, false),
             // Gone for good: a despawn does not reach the editor's undo stack.
             "despawn_entity" => (false, true),
             // Changes the world, recoverably by doing something else.

@@ -20,8 +20,9 @@ use bevy::reflect::structs::DynamicStruct;
 use bevy::reflect::PartialReflect;
 use renzora::serde_json::Value;
 use renzora::{
-    unique_entity_name, CurrentProject, DefaultCamera, ImportInPlaceQueue, MeshInstanceData,
-    PbrAdvanced, PbrAlphaMode, PbrMaterialExtracted, SceneCamera, SpawnRegistry,
+    unique_entity_name, CurrentProject, DefaultCamera, ImportInPlaceQueue, ImportPick,
+    ImportRequested, ImportTargetDir, MeshInstanceData, PbrAdvanced, PbrAlphaMode,
+    PbrMaterialExtracted, SceneCamera, SpawnRegistry,
 };
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
@@ -470,20 +471,33 @@ pub struct PendingImports(pub Vec<PendingImport>);
 /// module's specific answer rather than a generic one.
 const IMPORT_DEADLINE: Duration = Duration::from_secs(110);
 
-/// Copy a model into the project and queue it for the engine's importer.
+/// Bring models into the project.
 ///
-/// Answers later, from [`collect_imports`], because the import runs in an engine
-/// system on a following frame. That keeps it to one call: the caller gets the
-/// `.glb` path to spawn, not a promise to go and poll for one.
+/// A file from **outside** the project opens the editor's import window, the
+/// same one a person gets from Import > Files, already loaded with it: the
+/// window converts it, shows the scene tree and preview, and its Import button
+/// commits. That replaced copying the file in and converting it silently,
+/// which skipped everything the window does that the in-place path does not,
+/// most visibly the animation fallback: a skinless Mixamo clip has no geometry,
+/// so the silent path wrote the raw FBX under a `.glb` name and stopped, where
+/// the window extracts its `.anim` clips. It answers at once, because the
+/// commit is the window's to make, not this call's.
+///
+/// A file already **inside** the project is still converted where it stands
+/// and answered later from [`collect_imports`], with the `.glb` path to spawn.
+/// The window would copy it into the destination beside itself, leaving two.
 pub fn start_import(world: &mut World, args: &Value, reply: Sender<ToolReply>) {
     let result = queue_import(world, args);
     match result {
-        Ok(pending) => {
+        Ok(Queued::InPlace(pending)) => {
             let Some(mut pending_imports) = world.get_resource_mut::<PendingImports>() else {
                 let _ = reply.send(ToolReply::Failed("the import tracker is missing".into()));
                 return;
             };
             pending_imports.0.push(PendingImport { reply, ..pending });
+        }
+        Ok(Queued::Window(text)) => {
+            let _ = reply.send(ToolReply::Text(text));
         }
         Err(why) => {
             let _ = reply.send(ToolReply::Failed(why));
@@ -491,121 +505,82 @@ pub fn start_import(world: &mut World, args: &Value, reply: Sender<ToolReply>) {
     }
 }
 
-fn queue_import(world: &mut World, args: &Value) -> Result<PendingImport, String> {
-    let Some(raw) = args.get("path").and_then(Value::as_str) else {
-        return Err("import_model needs a path".into());
-    };
-    let root = project_root(world)?;
-    let source = PathBuf::from(raw.trim());
-    let source = if source.is_absolute() { source } else { root.join(source) };
-    if !source.is_file() {
-        return Err(format!("no file at {}", source.display()));
-    }
-    let ext = source
-        .extension()
-        .map(|e| e.to_string_lossy().to_lowercase())
+enum Queued {
+    InPlace(PendingImport),
+    Window(String),
+}
+
+fn queue_import(world: &mut World, args: &Value) -> Result<Queued, String> {
+    let mut raws: Vec<&str> = args
+        .get("paths")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
+    if let Some(raw) = args.get("path").and_then(Value::as_str) {
+        raws.push(raw);
+    }
+    if raws.is_empty() {
+        return Err("import_model needs a path or paths".into());
+    }
+    let root = project_root(world)?;
     let models = KINDS.iter().find(|(k, _)| *k == "models").map(|(_, e)| *e).unwrap_or(&[]);
-    if !models.contains(&ext.as_str()) {
-        return Err(format!(".{ext} is not a model format the importer reads"));
+
+    let mut sources = Vec::new();
+    for raw in raws {
+        let source = PathBuf::from(raw.trim());
+        let source = if source.is_absolute() { source } else { root.join(source) };
+        if !source.is_file() {
+            return Err(format!("no file at {}", source.display()));
+        }
+        let ext = source
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        if !models.contains(&ext.as_str()) {
+            return Err(format!(".{ext} is not a model format the importer reads"));
+        }
+        sources.push(source);
     }
 
-    let target = if source.starts_with(&root) {
-        // Already in the project: the importer converts it where it stands. It
-        // also deletes a non-GLB source afterwards, which is the engine's rule
-        // for an in-project model and the reason outside files are copied.
-        source
-    } else {
-        let stem = source
-            .file_stem()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| "model".into());
+    let inside = sources.iter().filter(|s| s.starts_with(&root)).count();
+    if inside == 0 {
         let folder = args.get("folder").and_then(Value::as_str).unwrap_or("models");
-        let dir = (1..)
-            .map(|n| {
-                root.join(folder)
-                    .join(if n == 1 { stem.clone() } else { format!("{stem}_{n}") })
-            })
-            .find(|d| !d.exists())
-            .unwrap_or_else(|| root.join(folder).join(&stem));
-        copy_model(&source, &dir)?
-    };
+        let count = sources.len();
+        world.insert_resource(ImportTargetDir(folder.trim_matches('/').to_string()));
+        world.insert_resource(ImportRequested(ImportPick::Given(sources)));
+        return Ok(Queued::Window(format!(
+            "opened the import window with {count} file(s), destination {folder}. It converts them now; \
+             screenshot to review, then click its Import button to commit. Afterwards list_assets kind models \
+             gives the .glb to spawn. An animation-only FBX (a skinless Mixamo clip) lands as .anim clips in \
+             an animations folder; set the window's Destination to the character's own folder to keep them \
+             beside it"
+        )));
+    }
+    if inside != sources.len() || sources.len() > 1 {
+        return Err(
+            "import files from outside the project together, or one in-project file on its own: \
+             the two take different paths"
+                .into(),
+        );
+    }
 
+    // Already in the project: the importer converts it where it stands. It also
+    // deletes a non-GLB source afterwards, which is the engine's rule for an
+    // in-project model.
+    let target = sources.remove(0);
     let glb = target.with_extension("glb");
     world
         .get_resource_or_insert_with(ImportInPlaceQueue::default)
         .0
         .push(target.clone());
 
-    Ok(PendingImport {
+    Ok(Queued::InPlace(PendingImport {
         queued: target,
         glb,
         root,
         reply: std::sync::mpsc::channel().0,
         deadline: Instant::now() + IMPORT_DEADLINE,
-    })
-}
-
-/// Copy a model, and for the formats that keep their data in sibling files, the
-/// folder it sits in.
-///
-/// A `.gltf` names its `.bin` and textures by relative path, and an `.obj` its
-/// `.mtl`, so copying the file alone would import geometry with no buffers or no
-/// materials. The whole folder goes, but only when it is small enough to be the
-/// model's own: a `.gltf` sitting loose in Downloads must not drag the rest of
-/// Downloads with it.
-fn copy_model(source: &Path, dir: &Path) -> Result<PathBuf, String> {
-    const MAX_SIBLINGS: usize = 400;
-    let ext = source
-        .extension()
-        .map(|e| e.to_string_lossy().to_lowercase())
-        .unwrap_or_default();
-    let parent = source.parent().unwrap_or(Path::new("."));
-
-    if matches!(ext.as_str(), "gltf" | "obj") {
-        let mut count = 0;
-        count_files(parent, &mut count, MAX_SIBLINGS + 1);
-        if count <= MAX_SIBLINGS {
-            copy_tree(parent, dir)?;
-            return Ok(dir.join(source.file_name().unwrap_or_default()));
-        }
-    }
-    std::fs::create_dir_all(dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
-    let dest = dir.join(source.file_name().unwrap_or_default());
-    std::fs::copy(source, &dest).map_err(|e| format!("could not copy the model: {e}"))?;
-    Ok(dest)
-}
-
-fn count_files(dir: &Path, count: &mut usize, stop_at: usize) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        if *count >= stop_at {
-            return;
-        }
-        let path = entry.path();
-        if path.is_dir() {
-            count_files(&path, count, stop_at);
-        } else {
-            *count += 1;
-        }
-    }
-}
-
-fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(to).map_err(|e| format!("could not create {}: {e}", to.display()))?;
-    let entries = std::fs::read_dir(from).map_err(|e| format!("could not read {}: {e}", from.display()))?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let dest = to.join(entry.file_name());
-        if path.is_dir() {
-            copy_tree(&path, &dest)?;
-        } else {
-            std::fs::copy(&path, &dest).map_err(|e| format!("could not copy {}: {e}", path.display()))?;
-        }
-    }
-    Ok(())
+    }))
 }
 
 /// Answer each import once the engine has taken it off the queue.
@@ -692,9 +667,12 @@ fn spawn_model_from_args(world: &mut World, args: &Value) -> Result<Entity, Stri
     };
     let rel = bring_into_project(world, raw, "models")?;
     let lower = rel.to_lowercase();
-    if !(lower.ends_with(".glb") || lower.ends_with(".gltf")) {
+    // `.rvg` is what the importer writes now: a model and its virtual
+    // geometry in one file, loaded through the same instance rehydration as a
+    // `.glb`, so it spawns the same way.
+    if !(lower.ends_with(".glb") || lower.ends_with(".gltf") || lower.ends_with(".rvg")) {
         return Err(format!(
-            "{rel} is not a .glb; import_model converts it first and answers with the path to spawn"
+            "{rel} is not a model (.rvg, .glb or .gltf); import_model converts it first and answers with the path to spawn"
         ));
     }
     if lower.ends_with(".glb") && !is_glb(&project_root(world)?.join(&rel)) {

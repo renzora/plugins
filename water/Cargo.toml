@@ -21,12 +21,11 @@ crate-type = ["dylib"]
 bevy = "0.19"
 renzora = { path = "../../engine/crates/renzora" }
 
-# No `avian3d` and no `serde` entry. Buoyancy reaches avian through
-# `renzora::avian3d`, which is the one compilation the engine's physics also
-# steps — a copy resolved here would be a second Bevy and bodies this plugin
-# pushed would be invisible to it. serde comes through `renzora::serde` for the
-# same reason lens_distortion does. Between them this plugin declares nothing
-# third-party, so cargo never runs and the build is one `rustc`.
+# No physics engine and no `serde` entry. Buoyancy pushes forces through the
+# engine's physics API (`renzora::physics`), so it works with whichever backend
+# the project selected and links none. serde comes through `renzora::serde` for
+# the same reason lens_distortion does. Between them this plugin declares
+# nothing third-party, so cargo never runs and the build is one `rustc`.
 
 # Marketplace listing (`renzora publish`). Cargo ignores this section.
 [package.metadata.renzora]

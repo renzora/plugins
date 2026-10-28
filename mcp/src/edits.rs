@@ -26,8 +26,8 @@ use bevy::ecs::reflect::ReflectComponent;
 use bevy::prelude::*;
 use bevy::reflect::enums::{DynamicEnum, DynamicVariant};
 use bevy::reflect::{GetPath, PartialReflect, ReflectRef};
-use renzora::avian3d::prelude::{Collider, RigidBody};
 use renzora::component::ScriptComponent;
+use renzora::physics::{CollisionShapeData, PhysicsBodyData};
 use renzora::{DefaultCamera, MaterialRef, MaterialResolved, MeshColor};
 use renzora::core::reflection::{get_reflected_field, set_reflected_field};
 use renzora::undo::{execute, UndoCommand, UndoContext};
@@ -646,10 +646,15 @@ pub fn set_default_camera(world: &mut World, before: Vec<Entity>, after: Entity)
 /// Colliders given to a set of meshes by `make_solid`.
 ///
 /// Each entry keeps the body the entity had going in. An entity that already
-/// had a `RigidBody` keeps it on redo, and undo leaves it exactly as it was,
-/// rather than stripping a dynamic prop of the body it was placed with.
+/// had a `PhysicsBodyData` keeps it on redo, and undo leaves it exactly as it
+/// was, rather than stripping a dynamic prop of the body it was placed with.
+///
+/// The engine's physics data rather than a physics engine's components, so the
+/// collider is saved with the scene and simulated by whichever backend the
+/// project selected. Removing it on undo is enough: the engine takes the
+/// collider (and a body it gave nothing else to) back out of the simulation.
 pub struct SolidEdit {
-    pub entries: Vec<(Entity, Collider, Option<RigidBody>)>,
+    pub entries: Vec<(Entity, CollisionShapeData, Option<PhysicsBodyData>)>,
 }
 
 impl UndoCommand for SolidEdit {
@@ -657,18 +662,19 @@ impl UndoCommand for SolidEdit {
         "make solid"
     }
     fn execute(&mut self, world: &mut World) {
-        for (entity, collider, body) in &self.entries {
+        for (entity, shape, body) in &self.entries {
             if let Ok(mut entity_mut) = world.get_entity_mut(*entity) {
-                entity_mut.insert((collider.clone(), body.unwrap_or(RigidBody::Static)));
+                let body = body.clone().unwrap_or_else(PhysicsBodyData::static_body);
+                entity_mut.insert((shape.clone(), body));
             }
         }
     }
     fn undo(&mut self, world: &mut World) {
         for (entity, _, body) in &self.entries {
             if let Ok(mut entity_mut) = world.get_entity_mut(*entity) {
-                entity_mut.remove::<Collider>();
+                entity_mut.remove::<CollisionShapeData>();
                 if body.is_none() {
-                    entity_mut.remove::<RigidBody>();
+                    entity_mut.remove::<PhysicsBodyData>();
                 }
             }
         }
@@ -676,12 +682,12 @@ impl UndoCommand for SolidEdit {
 }
 
 /// Give each entity its collider, undoably.
-pub fn make_solid(world: &mut World, targets: Vec<(Entity, Collider)>) {
+pub fn make_solid(world: &mut World, targets: Vec<(Entity, CollisionShapeData)>) {
     let entries = targets
         .into_iter()
-        .map(|(entity, collider)| {
-            let body = world.get::<RigidBody>(entity).copied();
-            (entity, collider, body)
+        .map(|(entity, shape)| {
+            let body = world.get::<PhysicsBodyData>(entity).cloned();
+            (entity, shape, body)
         })
         .collect();
     apply(world, Box::new(SolidEdit { entries }));

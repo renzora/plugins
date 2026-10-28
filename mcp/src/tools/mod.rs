@@ -84,9 +84,19 @@ fn dispatch(world: &mut World, call: ToolCall) {
         content::start_import(world, &args, reply);
         return;
     }
+    if name == "game_screenshot" {
+        crate::game::start_game_screenshot(world, reply);
+        return;
+    }
+    // Input plays out over several frames, one step each.
+    if crate::input::is_input_tool(&name) {
+        crate::input::start(world, &name, &args, reply);
+        return;
+    }
 
     let outcome = match name.as_str() {
         "editor_state" => observe::editor_state(world),
+        "game_input" => crate::game::game_input(world, &args),
         "read_console" => observe::read_console(&args),
         "scene_tree" => observe::scene_tree(world, &args),
         "inspect_entity" => observe::inspect_entity(world, &args),
@@ -120,6 +130,8 @@ fn dispatch(world: &mut World, call: ToolCall) {
         "list_presets" => content::list_presets(world),
         "spawn_preset" => content::spawn_preset(world, &args),
         "set_default_camera" => content::set_default_camera(world, &args),
+        "ui_find" => crate::input::ui_find(world, &args),
+        "set_workspace" => crate::input::set_workspace(world, &args),
         other => ToolReply::Failed(format!("no such tool: {other}")),
     };
 

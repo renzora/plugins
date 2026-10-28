@@ -16,8 +16,8 @@
 //! same sea at low resolution on the CPU, which is both cheaper than a readback
 //! and the only option on a headless server.
 //!
-//! Only the `Buoyant` marker is a plain component; `buoyancy::apply_buoyancy`
-//! is gated behind `physics` so a no-physics lean export drops `avian3d`.
+//! Buoyancy pushes through the engine's physics API (`renzora::physics`), so a
+//! `Buoyant` body floats on whichever physics engine the project selected.
 pub mod buoyancy;
 pub mod component;
 pub mod heightfield;
@@ -88,8 +88,8 @@ impl Plugin for WaterPlugin {
                     .chain(),
             );
 
-        // Applying buoyancy forces needs avian — only when `physics` is built.
-                app.add_systems(
+        // Buoyancy forces, pushed as physics commands once the sea is known.
+        app.add_systems(
             Update,
             buoyancy::apply_buoyancy.after(systems::update_water_heightfield),
         );

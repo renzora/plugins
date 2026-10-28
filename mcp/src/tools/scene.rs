@@ -1,12 +1,12 @@
 //! Tools that make, move and remove entities: shapes, lights, colliders,
 //! transforms, names, parents and copies.
 
+use bevy::ecs::component::ComponentId;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
-// The engine's own avian, through the contract crate's re-export. Naming it any
-// other way would give this plugin a second `Collider` type with a different
-// `TypeId`, which the physics step would never see.
-use renzora::avian3d::prelude::{Collider, ColliderOf, RigidBody, RigidBodyColliders};
+// The engine's physics data, not a physics engine's: it saves with the scene
+// and is simulated by whichever backend the project selected.
+use renzora::physics::{CollisionShapeData, PhysicsBackends, PhysicsBodyData};
 use renzora::serde_json::Value;
 use renzora::{unique_entity_name, MeshColor, MeshPrimitive, ShapeRegistry};
 
@@ -116,10 +116,10 @@ fn spawn_from_args(world: &mut World, args: &Value) -> Result<Entity, String> {
         .and_then(Value::as_bool)
         .unwrap_or(shape != "none");
     if solid {
-        if let Some(collider) = collider_for(world, shape) {
+        if let Some(collider) = collider_for(shape) {
             world
                 .entity_mut(entity)
-                .insert((collider, RigidBody::Static));
+                .insert((collider, PhysicsBodyData::static_body()));
         }
     }
 
@@ -228,64 +228,29 @@ pub(crate) fn material_handle(world: &mut World, color: Vec3) -> Handle<Standard
 
 /// A collider at unit size, to be scaled by the entity's own transform.
 ///
-/// Unit rather than baked to the entity's scale because avian's
-/// `transform_to_collider_scale` is on by default: it rescales the shape from
-/// the transform every time that transform changes. Baking the size in here
-/// would apply the scale twice, and a crate scaled to 0.7 would collide as 0.49.
+/// Unit rather than baked to the entity's scale because the engine scales a
+/// collider by its entity's transform, on every backend. Baking the size in
+/// here would apply the scale twice, and a crate scaled to 0.7 would collide
+/// as 0.49.
 ///
 /// The five analytic primitives are named because an exact shape is cheaper and
 /// better behaved than a mesh of the same thing. Everything else in the registry
 /// (`stairs`, `arch`, `ramp`, `quarter_pipe`, …) has no analytic equivalent, so
-/// it gets a triangle mesh built from the mesh being drawn. That is sound here
-/// only because all of this is static scenery: a trimesh is hollow, and a
-/// *moving* body given one falls through the world.
-fn collider_for(world: &mut World, shape: &str) -> Option<Collider> {
-    match shape {
-        "cube" => return Some(Collider::cuboid(1.0, 1.0, 1.0)),
-        "sphere" => return Some(Collider::sphere(0.5)),
-        "cylinder" => return Some(Collider::cylinder(0.5, 1.0)),
-        "capsule" => return Some(Collider::capsule(0.5, 1.0)),
+/// it is a mesh collider, which the engine builds from the entity's own drawn
+/// mesh. That is sound here only because all of this is static scenery: a
+/// trimesh is hollow, and a *moving* body given one falls through the world.
+fn collider_for(shape: &str) -> Option<CollisionShapeData> {
+    Some(match shape {
+        "cube" => CollisionShapeData::cuboid(Vec3::splat(0.5)),
+        "sphere" => CollisionShapeData::sphere(0.5),
+        "cylinder" => CollisionShapeData::cylinder(0.5, 0.5),
+        "capsule" => CollisionShapeData::capsule(0.5, 0.5),
         // A plane mesh has no thickness at all, and a zero-height collider is one
         // a fast mover tunnels straight through. Thin, but not nothing.
-        "plane" => return Some(Collider::cuboid(1.0, 0.02, 1.0)),
-        _ => {}
-    }
-
-    let handle = mesh_handle(world, shape)?;
-    let meshes = world.get_resource::<Assets<Mesh>>()?;
-    trimesh_from_mesh(meshes.get(&handle)?)
-}
-
-/// Build a triangle-mesh collider out of a Bevy mesh.
-///
-/// Written out rather than calling avian's `Collider::trimesh_from_mesh`, which
-/// is behind its `collider-from-mesh` feature and the engine does not enable it.
-/// `renzora_physics` does exactly this for the same reason, and matching it
-/// keeps one definition of "the collider for this mesh" in the project.
-fn trimesh_from_mesh(mesh: &Mesh) -> Option<Collider> {
-    use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
-    if mesh.primitive_topology() != PrimitiveTopology::TriangleList {
-        return None;
-    }
-    let positions = match mesh.attribute(Mesh::ATTRIBUTE_POSITION)? {
-        VertexAttributeValues::Float32x3(values) => values,
-        _ => return None,
-    };
-    let vertices: Vec<Vec3> = positions
-        .iter()
-        .map(|p| Vec3::new(p[0], p[1], p[2]))
-        .collect();
-    let indices: Vec<[u32; 3]> = match mesh.indices()? {
-        Indices::U32(idx) => idx.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect(),
-        Indices::U16(idx) => idx
-            .chunks_exact(3)
-            .map(|c| [c[0] as u32, c[1] as u32, c[2] as u32])
-            .collect(),
-    };
-    if indices.is_empty() {
-        return None;
-    }
-    Some(Collider::trimesh(vertices, indices))
+        "plane" => CollisionShapeData::cuboid(Vec3::new(0.5, 0.01, 0.5)),
+        "none" => return None,
+        _ => CollisionShapeData::mesh(),
+    })
 }
 
 /// Give an already-spawned subtree colliders.
@@ -311,7 +276,7 @@ pub(super) fn make_solid(world: &mut World, args: &Value) -> ToolReply {
         // A mesh is the test for "is this geometry". A group entity is a
         // transform and nothing else, and giving it a collider would put an
         // invisible unit cube at the centre of the scene.
-        if world.get::<Mesh3d>(at).is_some() && world.get::<Collider>(at).is_none() {
+        if world.get::<Mesh3d>(at).is_some() && world.get::<CollisionShapeData>(at).is_none() {
             // Each entity's own shape where it says what it is, so retrofitting a
             // mixed scene does not wrap its arches and ramps in boxes.
             let shape = world
@@ -322,24 +287,10 @@ pub(super) fn make_solid(world: &mut World, args: &Value) -> ToolReply {
         }
     }
 
-    // One collider per distinct shape, shared by every entity using it. Building
-    // a trimesh per entity would rebuild the same triangle list for all ninety
-    // walls in a row.
-    let mut built: HashMap<String, Option<Collider>> = HashMap::default();
-    let mut solid = Vec::new();
-    for (entity, shape) in targets {
-        let collider = match built.get(&shape) {
-            Some(collider) => collider.clone(),
-            None => {
-                let built_now = collider_for(world, &shape);
-                built.insert(shape, built_now.clone());
-                built_now
-            }
-        };
-        if let Some(collider) = collider {
-            solid.push((entity, collider));
-        }
-    }
+    let solid: Vec<(Entity, CollisionShapeData)> = targets
+        .into_iter()
+        .filter_map(|(entity, shape)| collider_for(&shape).map(|c| (entity, c)))
+        .collect();
     let count = solid.len();
     if count > 0 {
         edits::make_solid(world, solid);
@@ -644,15 +595,32 @@ fn duplicate_once(world: &mut World, entity: Entity, name: Option<&str>, offset:
 /// `RigidBodyColliders` is one, and a body that is its own collider (every solid
 /// `spawn_entity` shape) lists itself in it. The cloner then queued the entity
 /// as its own child, cloned that, queued it again, and the editor hung with
-/// memory climbing at about 65 MB a second. Both halves of the relationship are
-/// left out: inserting `Collider` on the copy rebuilds them, exactly as it does
-/// on a fresh spawn.
+/// memory climbing at about 65 MB a second.
+///
+/// So every component a physics backend keeps on entities is left out (see
+/// [`backend_components`]), whichever backend that is: the copy carries the
+/// engine's physics data, and the backend builds its own parts for it exactly
+/// as it does on a fresh spawn.
 fn clone_subtree(world: &mut World, entity: Entity) -> Entity {
+    let skip = backend_components(world);
     world
         .entity_mut(entity)
         .clone_and_spawn_with_opt_out(|builder| {
-            builder
-                .linked_cloning(true)
-                .deny::<(RigidBodyColliders, ColliderOf)>();
+            builder.linked_cloning(true).deny_by_ids(skip);
         })
+}
+
+/// The components physics backends keep on entities, found by the type-path
+/// prefixes each declares (`PhysicsBackend::runtime_type_prefixes`) rather
+/// than named, so this plugin names no physics engine.
+fn backend_components(world: &World) -> Vec<ComponentId> {
+    let Some(backends) = world.get_resource::<PhysicsBackends>() else {
+        return Vec::new();
+    };
+    let registry = world.resource::<AppTypeRegistry>().read();
+    registry
+        .iter()
+        .filter(|r| backends.is_runtime_type(r.type_info().type_path()))
+        .filter_map(|r| world.components().get_id(r.type_id()))
+        .collect()
 }

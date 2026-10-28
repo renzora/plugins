@@ -1,8 +1,9 @@
-// The `Buoyant` marker is a plain component, so this module stays compiled even
-// in a no-physics build. Only `apply_buoyancy` touches avian, and it is gated
-// behind `physics` so a lean export drops `avian3d` entirely.
-use renzora::avian3d::prelude::*;
+// Buoyancy goes through the engine's physics API (`renzora::physics`): it
+// pushes forces as commands and reads velocity back, so a floating body works
+// on whichever physics engine the project selected, and in a build with no
+// physics at all the commands simply go unanswered.
 use bevy::prelude::*;
+use renzora::physics::{BodyVelocity, PhysicsCommand, PhysicsCommands};
 use renzora::serde::{Deserialize, Serialize};
 
 use crate::heightfield::WaterHeightField;
@@ -75,17 +76,25 @@ pub fn sample_wave_velocity(xz: Vec2, field: &WaterHeightField) -> Vec2 {
 
 // ── Buoyancy system ──────────────────────────────────────────────────────────
 
+/// Push every submerged `Buoyant` body up, along the waves, and against its
+/// motion. One summed force per body per frame, which the physics API holds
+/// for every step until next frame's, so the push is steady at any frame rate.
 pub fn apply_buoyancy(
     field: Res<WaterHeightField>,
     water_query: Query<&GlobalTransform, With<crate::component::WaterSurface>>,
-    mut buoyant_query: Query<(&Buoyant, &GlobalTransform, Forces)>,
+    buoyant_query: Query<(Entity, &Buoyant, &GlobalTransform, Option<&BodyVelocity>)>,
+    mut physics: Option<ResMut<PhysicsCommands>>,
 ) {
     let Some(water_transform) = water_query.iter().next() else {
         return;
     };
+    // No physics in this build: nothing would answer the commands.
+    let Some(physics) = physics.as_deref_mut() else {
+        return;
+    };
     let water_y = water_transform.translation().y;
 
-    for (buoyant, transform, mut forces) in buoyant_query.iter_mut() {
+    for (entity, buoyant, transform, velocity) in buoyant_query.iter() {
         let pos = transform.translation();
         let xz = Vec2::new(pos.x, pos.z);
 
@@ -97,24 +106,22 @@ pub fn apply_buoyancy(
             let submerge_factor = (depth / buoyant.submerge_depth.max(1e-3)).min(1.0);
 
             // Vertical buoyancy
-            let buoyancy_force = buoyant.force * submerge_factor;
-            forces.apply_force(Vec3::new(0.0, buoyancy_force, 0.0));
+            let mut force = Vec3::new(0.0, buoyant.force * submerge_factor, 0.0);
 
             // Horizontal wave push — waves carry floating objects along
             let wave_vel = sample_wave_velocity(xz, &field);
-            let push = Vec3::new(wave_vel.x, 0.0, wave_vel.y) * buoyant.wave_push * submerge_factor;
-            forces.apply_force(push);
+            force += Vec3::new(wave_vel.x, 0.0, wave_vel.y) * buoyant.wave_push * submerge_factor;
 
             // Water drag — opposes velocity, stronger when deeper
-            let vel = forces.linear_velocity();
-            let drag_force = -vel * buoyant.drag * submerge_factor;
-            forces.apply_force(drag_force);
+            let vel = velocity.map(|v| v.linear).unwrap_or(Vec3::ZERO);
+            force += -vel * buoyant.drag * submerge_factor;
 
             // Extra vertical damping to settle bobbing
             if vel.y.abs() > 0.01 {
-                let vert_damp = -vel.y * buoyant.damping * submerge_factor;
-                forces.apply_force(Vec3::new(0.0, vert_damp, 0.0));
+                force.y += -vel.y * buoyant.damping * submerge_factor;
             }
+
+            physics.push(PhysicsCommand::AddForce { entity, force });
         }
     }
 }

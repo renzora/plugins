@@ -38,7 +38,9 @@ use std::time::Instant;
 mod b64;
 mod content;
 mod edits;
+mod game;
 mod http;
+mod input;
 mod rpc;
 mod tools;
 
@@ -235,8 +237,13 @@ impl Plugin for McpPlugin {
         .init_resource::<PendingShots>()
         .init_resource::<tools::AssetCache>()
         .init_resource::<content::PendingImports>()
-        .add_systems(Update, (tools::pump, collect_screenshots, content::collect_imports))
+        .init_resource::<game::PendingGameShots>()
+        .add_systems(
+            Update,
+            (tools::pump, collect_screenshots, content::collect_imports, game::collect_game_screenshots),
+        )
         .add_systems(Startup, announce);
+        input::build(app);
 
         app.register_shell_status_item(ShellStatusItem {
             id: "mcp",

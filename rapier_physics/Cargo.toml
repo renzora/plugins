@@ -1,0 +1,37 @@
+# Native plugin: an ordinary Bevy plugin shipped as source and compiled against
+# the staged SDK on the machine that installs it.
+#
+# ⚠ Do NOT run `cargo build` here. `plugins/` is outside the engine workspace, so
+# cargo would resolve a SECOND Bevy from crates.io and the plugin that came out
+# would have different `TypeId`s from the engine: it would load, run, and
+# corrupt the World. The path dependency below exists so rust-analyzer can
+# resolve `renzora::` while you author; the real build is `cargo renzora`.
+[workspace]
+
+[package]
+name = "rapier_physics"
+version = "0.1.0"
+edition = "2021"
+description = "Rapier as a physics backend: simulates the 3D world, the 2D world or both in place of the bundled avian when a project picks it in Project Settings > Physics."
+
+[lib]
+crate-type = ["dylib"]
+
+[dependencies]
+bevy = "0.20"
+renzora = { path = "../../engine/crates/renzora" }
+# The solvers, one per world. Pure Rust with no Bevy in their graph, so the
+# plugin build compiles them with cargo from a manifest that mentions no Bevy,
+# and links them privately. Their math is glam 0.33, the same version as
+# Bevy's, but a separate compilation: vectors cross between the two by value
+# (`to_rapier` / `to_bevy`), never by type.
+rapier3d = "0.36"
+rapier2d = "0.36"
+
+# Marketplace listing (`renzora publish`). Cargo ignores this section.
+[package.metadata.renzora]
+marketplace_id = "rapier_physics"
+category = "plugins"
+tags = ["physics", "simulation", "backend"]
+price_credits = 0
+min_engine_version = "r1-alpha8"
