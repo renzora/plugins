@@ -401,6 +401,17 @@ impl ScriptBackend for LuaBackend {
         self.call_hook(path, ctx, vars, "on_update", ())
     }
 
+    /// Once per fixed tick. The context's `delta` global is already the fixed
+    /// step, because the engine builds it from `Time` inside `FixedUpdate`.
+    fn call_on_fixed_update(
+        &self,
+        path: &Path,
+        ctx: &mut ScriptContext,
+        vars: &mut ScriptVariables,
+    ) -> Result<Vec<ScriptCommand>, String> {
+        self.call_hook(path, ctx, vars, "on_fixed_update", ())
+    }
+
     fn call_on_rpc(
         &self,
         path: &Path,
@@ -907,6 +918,7 @@ fn register_api(lua: &Lua) {
     cursor_and_camera(lua, &globals);
     ecs(lua, &globals);
     scene(lua, &globals);
+    save(lua, &globals);
     environment(lua, &globals);
     reflection(lua, &globals);
     events(lua, &globals);
@@ -1165,6 +1177,224 @@ fn input(lua: &Lua, globals: &LuaTable) {
         .unwrap(),
     );
 
+    touch(lua, globals);
+}
+
+/// Saved games (`save_*`), through `renzora::save`.
+///
+/// Called straight into the contract crate rather than sent as commands: a
+/// save is read back in the same hook that asks for it (`if save_load("slot1")
+/// then ... save_get("level")`), and a command would not land until the hook
+/// had returned.
+///
+/// The slot functions return `ok, message` the Lua way, so a script can say
+/// why a save failed instead of only that it did.
+fn save(lua: &Lua, globals: &LuaTable) {
+    use renzora::component::ScriptValue;
+    use renzora::save;
+
+    // Lua → saved value. A whole number is kept as an integer, so `coins`
+    // comes back as `42` rather than `42.0`, unless it does not fit one.
+    fn to_saved(value: LuaValue) -> LuaResult<ScriptValue> {
+        Ok(match value {
+            LuaValue::Boolean(b) => ScriptValue::Bool(b),
+            LuaValue::Integer(n) => match i32::try_from(n) {
+                Ok(n) => ScriptValue::Int(n),
+                Err(_) => ScriptValue::Float(n as f32),
+            },
+            LuaValue::Number(n) => ScriptValue::Float(n as f32),
+            LuaValue::String(s) => ScriptValue::String(s.to_str()?.to_string()),
+            LuaValue::Table(t) => {
+                let x = t.get::<f32>("x")?;
+                let y = t.get::<f32>("y")?;
+                match t.get::<Option<f32>>("z")? {
+                    Some(z) => ScriptValue::Vec3(Vec3::new(x, y, z)),
+                    None => ScriptValue::Vec2(Vec2::new(x, y)),
+                }
+            }
+            other => {
+                return Err(LuaError::runtime(format!(
+                    "save_set: a {} cannot be saved; use a number, boolean, string or {{x, y[, z]}} table",
+                    other.type_name()
+                )))
+            }
+        })
+    }
+    fn to_lua(lua: &Lua, value: ScriptValue) -> LuaResult<LuaValue> {
+        let vector = |pairs: &[(&str, f32)]| -> LuaResult<LuaValue> {
+            let t = lua.create_table()?;
+            for (k, v) in pairs {
+                t.set(*k, *v as f64)?;
+            }
+            Ok(LuaValue::Table(t))
+        };
+        Ok(match value {
+            ScriptValue::Bool(b) => LuaValue::Boolean(b),
+            ScriptValue::Int(n) => LuaValue::Integer(n as i64),
+            ScriptValue::Float(n) => LuaValue::Number(n as f64),
+            ScriptValue::String(s) | ScriptValue::Entity(s) => LuaValue::String(lua.create_string(s)?),
+            ScriptValue::Vec2(v) => vector(&[("x", v.x), ("y", v.y)])?,
+            ScriptValue::Vec3(v) => vector(&[("x", v.x), ("y", v.y), ("z", v.z)])?,
+            ScriptValue::Color(c) => vector(&[("r", c.x), ("g", c.y), ("b", c.z), ("a", c.w)])?,
+        })
+    }
+    // `ok, message`: `true, nil` on success, `false, "why"` on failure.
+    fn outcome(result: Result<(), save::SaveError>) -> (bool, Option<String>) {
+        match result {
+            Ok(()) => (true, None),
+            Err(e) => (false, Some(e.to_string())),
+        }
+    }
+
+    let _ = globals.set(
+        "save_set",
+        lua.create_function(|_, (key, value): (String, LuaValue)| {
+            save::set(key, to_saved(value)?);
+            Ok(())
+        })
+        .unwrap(),
+    );
+    let _ = globals.set(
+        "save_get",
+        lua.create_function(|lua, (key, default): (String, LuaValue)| match save::get(&key) {
+            Some(v) => to_lua(lua, v),
+            None => Ok(default),
+        })
+        .unwrap(),
+    );
+    let _ = globals.set(
+        "save_has",
+        lua.create_function(|_, key: String| Ok(save::get(&key).is_some())).unwrap(),
+    );
+    let _ = globals.set(
+        "save_remove",
+        lua.create_function(|_, key: String| Ok(save::remove(&key))).unwrap(),
+    );
+    let _ = globals.set(
+        "save_clear",
+        lua.create_function(|_, ()| {
+            save::clear();
+            Ok(())
+        })
+        .unwrap(),
+    );
+    let _ = globals.set(
+        "save_keys",
+        lua.create_function(|lua, ()| lua.create_sequence_from(save::keys())).unwrap(),
+    );
+    let _ = globals.set(
+        "save_write",
+        lua.create_function(|_, slot: String| Ok(outcome(save::write(&slot)))).unwrap(),
+    );
+    let _ = globals.set(
+        "save_load",
+        lua.create_function(|_, slot: String| Ok(outcome(save::load(&slot)))).unwrap(),
+    );
+    let _ = globals.set(
+        "save_delete",
+        lua.create_function(|_, slot: String| Ok(outcome(save::delete(&slot)))).unwrap(),
+    );
+    let _ = globals.set(
+        "save_exists",
+        lua.create_function(|_, slot: String| Ok(save::exists(&slot))).unwrap(),
+    );
+    // A list of `{ name = "slot1", saved_at = 1730000000 }`, newest first.
+    let _ = globals.set(
+        "save_slots",
+        lua.create_function(|lua, ()| {
+            let list = lua.create_table()?;
+            for (i, slot) in save::list().into_iter().enumerate() {
+                let entry = lua.create_table()?;
+                entry.set("name", slot.name)?;
+                entry.set("saved_at", slot.saved_at as i64)?;
+                list.set(i as i64 + 1, entry)?;
+            }
+            Ok(list)
+        })
+        .unwrap(),
+    );
+}
+
+/// Touch screens: every finger, plus taps and two-finger pinch and twist.
+///
+/// Fingers are read by position in the `_touches` list, 1 to `touch_count()`,
+/// ordered by when they went down. That index shifts as fingers lift, so a
+/// script following one finger across frames keeps its `touch_id(i)` instead.
+fn touch(lua: &Lua, globals: &LuaTable) {
+    let _ = globals.set(
+        "touch_count",
+        lua.create_function(|lua, ()| Ok(lua.globals().get::<i64>("_touch_count").unwrap_or(0)))
+            .unwrap(),
+    );
+
+    // One finger's table, or `None` when `i` is out of range.
+    fn finger(lua: &Lua, i: i64) -> LuaResult<Option<LuaTable>> {
+        let list: LuaTable = lua.globals().get("_touches")?;
+        Ok(list.get::<LuaTable>(i).ok())
+    }
+    let number = |field: &'static str| {
+        lua.create_function(move |lua, i: i64| {
+            Ok(finger(lua, i)?.and_then(|t| t.get::<i64>(field).ok()))
+        })
+        .unwrap()
+    };
+    let flag = |field: &'static str| {
+        lua.create_function(move |lua, i: i64| {
+            Ok(finger(lua, i)?.is_some_and(|t| t.get::<bool>(field).unwrap_or(false)))
+        })
+        .unwrap()
+    };
+    // Two values, `x, y`, read from `{field}_x` / `{field}_y`; 0, 0 when absent.
+    let pair = |field: &'static str| {
+        lua.create_function(move |lua, i: i64| {
+            let Some(t) = finger(lua, i)? else {
+                return Ok((0.0f64, 0.0f64));
+            };
+            Ok((
+                t.get::<f64>(format!("{field}_x")).unwrap_or(0.0),
+                t.get::<f64>(format!("{field}_y")).unwrap_or(0.0),
+            ))
+        })
+        .unwrap()
+    };
+    let _ = globals.set("touch_id", number("id"));
+    let _ = globals.set("touch_position", pair("position"));
+    let _ = globals.set("touch_start", pair("start"));
+    let _ = globals.set("touch_delta", pair("delta"));
+    let _ = globals.set("touch_just_pressed", flag("just_pressed"));
+    let _ = globals.set("touch_just_released", flag("just_released"));
+
+    let _ = globals.set(
+        "pinch_delta",
+        lua.create_function(|lua, ()| Ok(lua.globals().get::<f64>("_touch_pinch").unwrap_or(0.0)))
+            .unwrap(),
+    );
+    let _ = globals.set(
+        "rotate_delta",
+        lua.create_function(|lua, ()| {
+            Ok(lua.globals().get::<f64>("_touch_rotation").unwrap_or(0.0))
+        })
+        .unwrap(),
+    );
+    let _ = globals.set(
+        "tap_count",
+        lua.create_function(|lua, ()| {
+            let taps: LuaTable = lua.globals().get("_taps")?;
+            Ok(taps.raw_len() as i64)
+        })
+        .unwrap(),
+    );
+    let _ = globals.set(
+        "tap_position",
+        lua.create_function(|lua, i: i64| {
+            let taps: LuaTable = lua.globals().get("_taps")?;
+            let Ok(tap) = taps.get::<LuaTable>(i) else {
+                return Ok((0.0f64, 0.0f64));
+            };
+            Ok((tap.get::<f64>(1).unwrap_or(0.0), tap.get::<f64>(2).unwrap_or(0.0)))
+        })
+        .unwrap(),
+    );
 }
 
 /// Sounds, music and the per-entity `AudioPlayer`.
@@ -2330,6 +2560,41 @@ fn set_context_globals(lua: &Lua, ctx: &ScriptContext, vars: &[(String, ScriptVa
             let _ = pads.set(pad.id as i64, pad_t);
         }
         let _ = g.set("_gamepads", pads);
+    }
+
+    // Touch: `_touches` is a 1-based list read through touch_count() /
+    // touch_position(i) etc., `_taps` a list of `{x, y}`.
+    let touch = &frame.touch;
+    let _ = g.set("_touch_count", touch.touches.len() as i64);
+    let _ = g.set("_touch_pinch", touch.pinch as f64);
+    let _ = g.set("_touch_rotation", touch.rotation as f64);
+    if let Ok(list) = lua.create_table() {
+        for (i, t) in touch.touches.iter().enumerate() {
+            let Ok(entry) = lua.create_table() else {
+                continue;
+            };
+            // Ids come from the OS as u64; a Lua integer is i64, and no
+            // platform hands out ids anywhere near the top bit.
+            let _ = entry.set("id", t.id as i64);
+            let _ = entry.set("position_x", t.position.x as f64);
+            let _ = entry.set("position_y", t.position.y as f64);
+            let _ = entry.set("start_x", t.start_position.x as f64);
+            let _ = entry.set("start_y", t.start_position.y as f64);
+            let _ = entry.set("delta_x", t.delta.x as f64);
+            let _ = entry.set("delta_y", t.delta.y as f64);
+            let _ = entry.set("just_pressed", t.just_pressed);
+            let _ = entry.set("just_released", t.just_released);
+            let _ = list.set(i as i64 + 1, entry);
+        }
+        let _ = g.set("_touches", list);
+    }
+    if let Ok(taps) = lua.create_table() {
+        for (i, at) in touch.taps.iter().enumerate() {
+            if let Ok(tap) = lua.create_sequence_from([at.x as f64, at.y as f64]) {
+                let _ = taps.set(i as i64 + 1, tap);
+            }
+        }
+        let _ = g.set("_taps", taps);
     }
 
     // Entity

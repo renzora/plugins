@@ -26,7 +26,9 @@ pub(crate) fn build(app: &mut App) {
     // Stepped where avian steps, on the fixed clock, so a scene behaves the
     // same per second on either backend.
     app.add_systems(FixedPostUpdate, (step, write_transforms).chain().run_if(active.clone()));
-    app.add_systems(PostUpdate, apply_commands.in_set(PhysicsSet::Commands).run_if(active));
+    app.add_systems(PostUpdate, apply_commands.in_set(PhysicsSet::Commands).run_if(active.clone()));
+    // What `on_fixed_update` pushed, before the step that follows its tick.
+    app.add_systems(FixedUpdate, apply_fixed_commands.in_set(PhysicsSet::Commands).run_if(active));
 }
 
 pub struct Rapier3dBackend;
@@ -632,6 +634,40 @@ fn apply_commands(
             body.reset_torques(false);
         }
     }
+    apply_queue(rapier, &queue, &dims);
+}
+
+/// A fixed tick's commands. Resets only the bodies this tick pushes a force or
+/// torque to, so the forces `on_update` scripts set on other bodies survive (see
+/// `PhysicsSet::Commands`); the next `PostUpdate` resets everything as usual.
+fn apply_fixed_commands(
+    mut rapier: ResMut<Rapier3d>,
+    queue: Res<PhysicsCommands>,
+    dims: Query<Has<RuntimePhysics2d>, With<RuntimePhysics>>,
+) {
+    if queue.0.is_empty() {
+        return;
+    }
+    let rapier = &mut *rapier;
+    for command in &queue.0 {
+        let (PhysicsCommand::AddForce { entity, .. } | PhysicsCommand::AddTorque { entity, .. }) = *command
+        else {
+            continue;
+        };
+        let Some(handle) = rapier.bodies.get(&entity).copied() else { continue };
+        if let Some(body) = rapier.world.bodies.get_mut(handle) {
+            body.reset_forces(false);
+            body.reset_torques(false);
+        }
+    }
+    apply_queue(rapier, &queue, &dims);
+}
+
+fn apply_queue(
+    rapier: &mut Rapier3d,
+    queue: &PhysicsCommands,
+    dims: &Query<Has<RuntimePhysics2d>, With<RuntimePhysics>>,
+) {
     for command in &queue.0 {
         let entity = command.entity();
         if let PhysicsCommand::Strip { entity } = *command {

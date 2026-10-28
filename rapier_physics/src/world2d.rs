@@ -28,7 +28,8 @@ pub(crate) fn build(app: &mut App) {
     app.add_systems(Update, sync.in_set(PhysicsSet::Sync).run_if(active.clone()));
     app.add_systems(Update, write_state.in_set(PhysicsSet::Writeback).run_if(active.clone()));
     app.add_systems(FixedPostUpdate, (step, write_transforms).chain().run_if(active.clone()));
-    app.add_systems(PostUpdate, apply_commands.in_set(PhysicsSet::Commands).run_if(active));
+    app.add_systems(PostUpdate, apply_commands.in_set(PhysicsSet::Commands).run_if(active.clone()));
+    app.add_systems(FixedUpdate, apply_fixed_commands.in_set(PhysicsSet::Commands).run_if(active));
 }
 
 pub struct Rapier2dBackend;
@@ -567,6 +568,38 @@ fn apply_commands(
             body.reset_torques(false);
         }
     }
+    apply_queue(rapier, &queue, &dims);
+}
+
+/// The 2D twin of `world3d::apply_fixed_commands`.
+fn apply_fixed_commands(
+    mut rapier: ResMut<Rapier2d>,
+    queue: Res<PhysicsCommands>,
+    dims: Query<Has<RuntimePhysics2d>, With<RuntimePhysics>>,
+) {
+    if queue.0.is_empty() {
+        return;
+    }
+    let rapier = &mut *rapier;
+    for command in &queue.0 {
+        let (PhysicsCommand::AddForce { entity, .. } | PhysicsCommand::AddTorque { entity, .. }) = *command
+        else {
+            continue;
+        };
+        let Some(handle) = rapier.bodies.get(&entity).copied() else { continue };
+        if let Some(body) = rapier.world.bodies.get_mut(handle) {
+            body.reset_forces(false);
+            body.reset_torques(false);
+        }
+    }
+    apply_queue(rapier, &queue, &dims);
+}
+
+fn apply_queue(
+    rapier: &mut Rapier2d,
+    queue: &PhysicsCommands,
+    dims: &Query<Has<RuntimePhysics2d>, With<RuntimePhysics>>,
+) {
     for command in &queue.0 {
         let entity = command.entity();
         if let PhysicsCommand::Strip { entity } = *command {
