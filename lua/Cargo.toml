@@ -5,7 +5,7 @@ name = "lua"
 # Ahead of the 1.0.0 already on the listing. A published version is never
 # replaced, so republishing 0.1.0 would be refused, and the manifest had drifted
 # behind what was actually shipped.
-version = "1.1.0"
+version = "1.1.1"
 edition = "2021"
 description = "Lua scripting for Renzora. Implements the engine's language-backend contract."
 

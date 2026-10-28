@@ -104,5 +104,7 @@ pub fn starter_lua(boilerplate: bool) -> String {
     .to_string()
 }
 
-
-renzora::plugin!(LuaPlugin);
+// Runtime, not the default Editor: the interpreter is what runs a game's `.lua`
+// scripts, so an editor-only Lua loaded in the editor's own preview and nowhere
+// else. Play and every exported game logged "No backend for lua" instead.
+renzora::plugin!(LuaPlugin, Runtime);
