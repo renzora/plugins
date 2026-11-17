@@ -29,11 +29,11 @@ use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::input::ButtonState;
 use bevy::prelude::*;
 use bevy::text::{TextBackgroundColor, TextLayoutInfo, Underline};
-use bevy::ui::{ComputedNode, RelativeCursorPosition};
+use bevy::ui::ComputedNode;
 
 use renzora_ember::font::{ui_font, EmberFonts};
 use renzora_ember::interaction::{BLOCK, PASS_THROUGH};
-use renzora_ember::UiInteraction;
+use renzora_ember::{UiCursor, UiInteraction};
 use renzora_ember::theme::{border, panel_bg, rgb, selection, text_muted, text_primary};
 use renzora_ember::widgets::clipboard;
 
@@ -214,7 +214,7 @@ pub fn build(commands: &mut Commands, fonts: &EmberFonts) -> Entity {
             // Drag-selection needs the pointer in the rows' own coordinates,
             // and this is the component that reports them without the panel
             // having to know where the dock put it.
-            RelativeCursorPosition::default(),
+            UiCursor::default(),
             PASS_THROUGH,
             TermGrid,
             Name::new("terminal-grid"),
@@ -232,7 +232,7 @@ pub fn build(commands: &mut Commands, fonts: &EmberFonts) -> Entity {
             // The pointer's position along the track, which is the whole of the
             // drag: a press anywhere on it is a jump to that fraction of the
             // history, and holding is the same thing every frame.
-            RelativeCursorPosition::default(),
+            UiCursor::default(),
             BLOCK,
             TermScrollTrack,
             Name::new("terminal-scrollbar"),
@@ -836,7 +836,7 @@ pub fn wheel(
     mut term: ResMut<Terminal>,
     mut events: MessageReader<MouseWheel>,
     roots: Query<&UiInteraction, With<TermRoot>>,
-    strips: Query<&RelativeCursorPosition, With<crate::strip::TermStrip>>,
+    strips: Query<&UiCursor, With<crate::strip::TermStrip>>,
 ) {
     let hovered = roots.single().is_ok_and(|i| *i != UiInteraction::None);
     // The strip is inside the panel, so the root reports it as hovered too. The
@@ -896,7 +896,7 @@ fn thumb_height(track_h: f32, visible: usize, total: usize) -> f32 {
 /// Size and place the thumb from the active tab's position in its history.
 pub fn scrollbar_sync(
     term: Res<Terminal>,
-    tracks: Query<(&ComputedNode, &RelativeCursorPosition), With<TermScrollTrack>>,
+    tracks: Query<(&ComputedNode, &UiCursor), With<TermScrollTrack>>,
     mut thumbs: Query<(&mut Node, &mut BackgroundColor), With<TermScrollThumb>>,
 ) {
     let (Ok((track, pointer)), Ok((mut node, mut color))) = (tracks.single(), thumbs.single_mut())
@@ -945,7 +945,7 @@ pub fn scrollbar_sync(
 pub fn scrollbar_drag(
     mut term: ResMut<Terminal>,
     mouse: Res<ButtonInput<MouseButton>>,
-    tracks: Query<(&ComputedNode, &RelativeCursorPosition), With<TermScrollTrack>>,
+    tracks: Query<(&ComputedNode, &UiCursor), With<TermScrollTrack>>,
 ) {
     let Ok((track, pointer)) = tracks.single() else {
         return;
@@ -996,7 +996,7 @@ pub fn scrollbar_drag(
 pub fn select(
     mut term: ResMut<Terminal>,
     mouse: Res<ButtonInput<MouseButton>>,
-    grids: Query<(&RelativeCursorPosition, &ComputedNode), With<TermGrid>>,
+    grids: Query<(&UiCursor, &ComputedNode), With<TermGrid>>,
 ) {
     let Ok((pointer, computed)) = grids.single() else {
         return;

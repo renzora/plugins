@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.3
+
+- Builds on the Bevy of 2026-11-15, which removed `RelativeCursorPosition` (needs the r1-alpha8 nightly from 2026-11-17 or later).
+
 ## 1.0.2
 
 - Builds on Bevy 0.20 (needs the r1-alpha8 nightly from 2026-10-19 or later).

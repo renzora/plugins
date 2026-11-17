@@ -29,12 +29,12 @@
 //! pointed at. A serial at worst names a tab that is already gone.
 
 use bevy::prelude::*;
-use bevy::ui::{ComputedNode, RelativeCursorPosition, ScrollPosition, UiGlobalTransform};
+use bevy::ui::{ComputedNode, ScrollPosition, UiGlobalTransform};
 use bevy::window::PrimaryWindow;
 
 use renzora_ember::font::{glyph, ui_font, EmberFonts};
 use renzora_ember::interaction::{BLOCK, PASS_THROUGH};
-use renzora_ember::UiInteraction;
+use renzora_ember::{UiCursor, UiInteraction};
 use renzora_ember::theme::{
     accent, divider, hover_bg, panel_bg, rgb, tab_active, tab_hover, text_muted, text_primary,
 };
@@ -126,7 +126,7 @@ pub fn build(commands: &mut Commands) -> Entity {
             // A wheel over a column of tabs scrolls the tabs; without this it
             // scrolls the shell's history instead, which is somewhere else
             // entirely on screen.
-            RelativeCursorPosition::default(),
+            UiCursor::default(),
             PASS_THROUGH,
             TermStrip,
             Name::new("terminal-strip"),
@@ -351,7 +351,7 @@ fn chip(
             BLOCK,
             // The pointer's position inside the chip, so a right-click can open
             // its menu at the cursor.
-            RelativeCursorPosition::default(),
+            UiCursor::default(),
             TabButton { id, active },
             Name::new(format!("terminal-tab-{id}")),
         ))
@@ -528,7 +528,7 @@ fn control(
             BLOCK,
             // Needed by the two that open a menu, to recover their own on-screen
             // rect; harmless on the others.
-            RelativeCursorPosition::default(),
+            UiCursor::default(),
             marker,
             Name::new(name.to_string()),
         ))
@@ -700,7 +700,7 @@ pub fn overflow_menu(
     fonts: Option<Res<EmberFonts>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     buttons: Query<
-        (&UiInteraction, &RelativeCursorPosition, &ComputedNode),
+        (&UiInteraction, &UiCursor, &ComputedNode),
         (With<OverflowButton>, Changed<UiInteraction>),
     >,
 ) {
