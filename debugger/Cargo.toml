@@ -13,9 +13,9 @@
 name = "debugger"
 # Ahead of the 1.0.0 already on the listing. It was published before the
 # manifest claimed an id, so the manifest had drifted behind what shipped.
-version = "1.0.4"
+version = "1.1.0"
 edition = "2021"
-description = "The editor's debug panels and the Debug workspace that arranges them."
+description = "The editor's debug readouts (performance, memory, ECS, cameras, culling, materials, scripting, UI, render toggles) as probes shown in the companion's Debug screen."
 
 [package.metadata.renzora]
 # The listing this publishes to. Claimed once and never changed: it is how a
@@ -35,6 +35,9 @@ price_credits = 0
 # build on produces failed installs; claiming one too new only means r1-alpha7
 # users do not see it yet, and the release can be retargeted from the listing
 # without republishing.
+#
+# 1.1.0 needs a later r1-alpha8 nightly than 1.0.x: the one with
+# `renzora::probes` and the companion's Debug screen.
 min_engine_version = "r1-alpha8"
 
 [lib]
@@ -48,10 +51,9 @@ bevy = "0.19"
 # `renzora` and `renzora_ember` and nothing else, so a panel reading
 # `renzora_shader::material::perf::MaterialPerfStats` could never have been one.
 renzora = { path = "../../crates/renzora", features = ["editor", "diagnostics"] }
-# The panel and workspace registration APIs: `register_panel_content` for the
-# thirteen panels, `register_workspace` for the layout arranging them. Has to be
-# the SHARED image, which is the whole reason a native plugin is bound to the
-# engine build it was compiled against.
+# The Settings section for stat refresh rates, and the UI diagnostics the UI
+# probes read. Has to be the SHARED image, which is the whole reason a native
+# plugin is bound to the engine build it was compiled against.
 renzora_ember = { path = "../../../../crates/renzora_ember" }
 # Resident-set and virtual-size readings for the Memory Profiler panel. Plain
 # Rust with no Bevy in its graph, so the native-plugin dep resolver builds it

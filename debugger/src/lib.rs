@@ -1,13 +1,14 @@
-//! Debugging panels and profiling support for the Renzora editor.
+//! The editor's debug readouts, as probes shown in the companion.
 //!
-//! Panels: System Profiler, Memory Profiler, Performance, Render Stats, ECS
-//! Stats, Camera Debug, Culling Debug, Material Resolver, Scripting.
-//! All panels are bevy-native (ember); their content lives in [`native`] and
-//! reads the per-frame snapshot resources kept current by the backend-agnostic
-//! `update_*` systems in [`state`] (plus the scripting diag updater below).
+//! Performance, System, Render Stats, Memory, ECS Stats, Camera Debug,
+//! Culling, Material Diag, Scripting Diag, UI Reactivity, UI Layout and Render
+//! Toggles. They were dock panels in the Debug workspace until panels that
+//! change every frame were found to cost the editor a full UI relayout per
+//! frame; see [`probes`]. Their data still comes from the per-frame snapshot
+//! resources the `update_*` systems in [`state`] keep current, now only while
+//! the companion watches the probe that reads them.
 
-pub mod native;
-pub mod panels;
+pub mod probes;
 pub mod state;
 
 use bevy::diagnostic::{
@@ -15,42 +16,15 @@ use bevy::diagnostic::{
 };
 use bevy::prelude::*;
 
-use renzora_ember::dock::DockTree;
-use renzora_ember::workspace::RegisterWorkspace;
+use renzora::probes::probe_watched;
 use renzora_ember::reactive::Rx;
 
 use state::*;
 
-// ============================================================================
-// Diagnostic snapshot updaters (scripting)
-// ============================================================================
-
-// `ScriptInventory` rather than `Res<ScriptEngine>` plus a `ScriptComponent`
-// query: this panel is a native plugin, which links `bevy`, `renzora` and
-// `renzora_ember` and can name neither of those. `renzora_scripting` publishes
-// the four values this ever read, so the walk over every scripted entity happens
-// once in the crate that owns them instead of again here.
-fn update_scripting_diag_state(
-    mut state: ResMut<panels::scripting::ScriptingDiagState>,
-    inventory: Option<Res<renzora::diagnostics::ScriptInventory>>,
-    perf: Option<Res<renzora::diagnostics::script::ScriptPerfStats>>,
-) {
-    if let Some(inv) = inventory {
-        state.entities_with_script = inv.entities_with_script;
-        state.total_script_attachments = inv.total_attachments;
-        state.backend_count = inv.backend_count;
-        state.scripts_folder = inv.scripts_folder.clone();
-    }
-
-    if let Some(perf) = perf {
-        state.totals = perf.totals();
-        state.per_script = perf.snapshot();
-        state.current_frame = perf.frame;
-    } else {
-        state.totals = Default::default();
-        state.per_script.clear();
-        state.current_frame = 0;
-    }
+/// Run condition: a probe that reads `RenderStats` is being watched. Two do,
+/// Render Stats and System.
+fn render_stats_watched(watched: Option<Res<renzora::probes::WatchedProbes>>) -> bool {
+    watched.is_some_and(|w| w.0.contains("render_stats") || w.0.contains("system_profiler"))
 }
 
 // ============================================================================
@@ -105,8 +79,8 @@ impl Plugin for DebuggerPlugin {
         // Attribute the engine's built-in GPU passes to the components that drive
         // them, so the GPU Pass Breakdown shows *what* is paying for each pass.
         // Plugins that add their own render passes register the same way (via
-        // `App::register_gpu_pass_source`) — nothing here is special-cased in the
-        // panel. NOTE: the atmosphere environment map becomes a
+        // `App::register_gpu_pass_source`); nothing here is special-cased in the
+        // probe. NOTE: the atmosphere environment map becomes a
         // `GeneratedEnvironmentMapLight` on the camera, so counting that catches
         // the realtime atmosphere IBL that drives the `lightprobe_*` passes.
         use bevy::light::{DirectionalLight, GeneratedEnvironmentMapLight, PointLight, SpotLight};
@@ -126,15 +100,15 @@ impl Plugin for DebuggerPlugin {
             .init_resource::<MemoryProfilerState>()
             .init_resource::<CameraDebugState>()
             .init_resource::<CullingDebugState>()
-            .init_resource::<EcsStatsState>()
-            .init_resource::<panels::scripting::ScriptingDiagState>();
+            .init_resource::<EcsStatsState>();
 
         // Update systems
         use renzora::SplashState;
         // `update_diagnostics_state` also feeds the always-visible status bar, so
-        // it stays panel-ungated. The other three feed exactly one panel each and
-        // are O(scene) or O(assets), so they get the same treatment as
-        // `update_render_stats` / `update_ecs_stats` below: hidden → zero cost.
+        // it stays ungated. The others each feed one probe and are O(scene) or
+        // O(assets), so each runs only while the companion watches its probe:
+        // unwatched, zero cost. (They were gated on their panel being the
+        // active tab, the same rule for the same reason.)
         app.add_systems(
             Update,
             update_diagnostics_state.run_if(in_state(SplashState::Editor)),
@@ -143,57 +117,40 @@ impl Plugin for DebuggerPlugin {
             Update,
             (
                 // Iterates every Mesh and every Image in `Assets`.
-                update_memory_profiler.run_if(renzora_ember::dock::panel_active("memory_profiler")),
-                update_camera_debug_state.run_if(renzora_ember::dock::panel_active("camera_debug")),
+                update_memory_profiler.run_if(probe_watched("memory_profiler")),
+                update_camera_debug_state.run_if(probe_watched("camera_debug")),
                 // Walks every Mesh3d entity computing camera distances.
-                update_culling_debug_state
-                    .run_if(renzora_ember::dock::panel_active("culling_debug")),
+                update_culling_debug_state.run_if(probe_watched("culling_debug")),
             )
                 .run_if(in_state(SplashState::Editor)),
         );
-        // `update_render_stats` walks render-world resources every frame; it only
-        // feeds the Render Stats panel, so gate it on that panel being the active
-        // tab and throttle at the user-configured interval (Settings → Plugins →
+        // `update_render_stats` walks render-world resources every frame. Both the
+        // Render Stats and the System probes read it, so either watching runs
+        // it, throttled at the user-configured interval (Settings → Plugins →
         // Stats Refresh).
         app.add_systems(
             Update,
             update_render_stats
                 .run_if(in_state(SplashState::Editor))
-                .run_if(renzora_ember::dock::panel_active("render_stats"))
+                .run_if(render_stats_watched)
                 .run_if(renzora::stat_refresh_throttle(|s| s.render_stats_ms)),
         );
-        // Exclusive systems (need `&mut World`): ECS archetype stats, and the GPU
-        // pass breakdown (scans archetypes to count the entities driving passes).
-        // The archetype scan is heavy and feeds only the ECS Stats panel — gate +
-        // throttle it the same way.
+        // Exclusive: the archetype scan needs `&mut World`. Heavy, and read only
+        // by the ECS Stats probe, so gated and throttled the same way.
         app.add_systems(
             Update,
             update_ecs_stats
                 .run_if(in_state(SplashState::Editor))
-                .run_if(renzora_ember::dock::panel_active("ecs_stats"))
+                .run_if(probe_watched("ecs_stats"))
                 .run_if(renzora::stat_refresh_throttle(|s| s.ecs_stats_ms)),
         );
         app.add_systems(
             Update,
             update_system_timing.run_if(in_state(SplashState::Editor)),
         );
-        // The entity-inventory pass iterates *every* ScriptComponent in the scene
-        // each frame. That was once a full-scene scan (272k on a stress city,
-        // back when one was auto-inserted on every named entity); the component
-        // is now present only where a script actually is, so it is bounded by the
-        // scripted entities instead. The gate stays regardless — it is still a
-        // per-frame walk for a readout nobody may be looking at, so it runs only
-        // while the Scripting panel is the active tab, throttled to 4 Hz.
-        // Hidden → zero cost.
-        app.add_systems(
-            Update,
-            update_scripting_diag_state
-                .run_if(in_state(SplashState::Editor))
-                .run_if(renzora_ember::dock::panel_active("scripting_diag"))
-                .run_if(bevy::time::common_conditions::on_timer(
-                    std::time::Duration::from_millis(250),
-                )),
-        );
+        // The Scripting Diag probe reads `renzora_scripting`'s own inventory and
+        // per-script timings, which that crate keeps current, so it needs no
+        // updater here.
 
         // User-configurable refresh rates for the live stat readouts. Seed the
         // resource from disk (the throttled stat systems above + the system
@@ -207,95 +164,11 @@ impl Plugin for DebuggerPlugin {
             build_stats_refresh_section,
         );
 
-        // bevy-native (ember) content for every debug panel.
-        native::register_native_debug(app);
-
-        // …and the shell metadata for each, which is what puts them in the
-        // Add-Panel picker and gives the dock a title and icon for each tab.
-        //
-        // These used to be thirteen rows of `PANEL_META` in `renzora_shell`,
-        // which meant an editor without this plugin still listed every one of
-        // them and every one opened empty. Declared here they arrive and leave
-        // with the panels they name, the way the marketplace plugin's already
-        // do. `register_panel_content` above supplies the content; this supplies
-        // the metadata, and a panel needs both.
-        //
-        // `render_toggles` had no row at all, so the panel existed with no way
-        // to open it from the picker. It has one now.
-        use renzora::RenzoraShellExt;
-        app.register_shell_panel("performance", "Performance", "gauge", "Debug")
-            .register_shell_panel("render_stats", "Render Stats", "chart-bar", "Debug")
-            .register_shell_panel("ecs_stats", "ECS Stats", "list-numbers", "Debug")
-            .register_shell_panel("memory_profiler", "Memory", "memory", "Debug")
-            .register_shell_panel("system_profiler", "System", "cpu", "Debug")
-            .register_shell_panel("camera_debug", "Camera Debug", "video-camera", "Debug")
-            .register_shell_panel("culling_debug", "Culling", "scissors", "Debug")
-            .register_shell_panel("material_resolver_diag", "Material Diag", "palette", "Debug")
-            .register_shell_panel("scripting_diag", "Scripting Diag", "bug", "Debug")
-            .register_shell_panel("ui_reactivity", "UI Reactivity", "lightning", "Debug")
-            .register_shell_panel("ui_layout", "UI Layout", "layout", "Debug")
-            .register_shell_panel("render_toggles", "Render Toggles", "sliders", "Debug");
-
-        // And the workspace those panels sit in. This used to be `layout_debug`
-        // in `renzora_ui::LayoutManager::default()`, hardcoded beside the
-        // built-in layouts, which meant the editor shipped an arrangement of
-        // panels it did not own. Registering it here keeps the panels and the
-        // layout that arranges them in one place: whichever way this plugin is
-        // built in, the Debug workspace arrives with it and leaves with it.
-        app.register_workspace("Debug", debug_workspace());
+        // Every readout, as a probe the companion's Debug screen shows. No
+        // panels and no Debug workspace: those cost the editor a full UI
+        // relayout every frame they were open.
+        probes::register(app);
     }
-}
-
-/// The Debug workspace: hierarchy and performance down the left, the viewport
-/// over a row of profilers in the middle, and inspector/ECS above the
-/// subsystem diagnostics on the right.
-///
-/// The subsystem panels share one slot as tabs rather than each taking space.
-/// There are three of them and they are consulted one at a time.
-fn debug_workspace() -> DockTree {
-    DockTree::horizontal(
-        DockTree::vertical(DockTree::leaf("hierarchy"), DockTree::leaf("performance"), 0.6),
-        DockTree::horizontal(
-            DockTree::vertical(
-                DockTree::leaf("viewport"),
-                DockTree::horizontal(
-                    DockTree::horizontal(
-                        DockTree::leaf("system_profiler"),
-                        DockTree::leaf("render_stats"),
-                        0.5,
-                    ),
-                    DockTree::horizontal(
-                        DockTree::leaf("memory_profiler"),
-                        DockTree::horizontal(
-                            DockTree::leaf("physics_debug"),
-                            DockTree::leaf("camera_debug"),
-                            0.5,
-                        ),
-                        0.33,
-                    ),
-                    0.4,
-                ),
-                0.65,
-            ),
-            DockTree::vertical(
-                DockTree::Leaf {
-                    tabs: vec!["inspector".into(), "ecs_stats".into()],
-                    active_tab: 0,
-                },
-                DockTree::Leaf {
-                    tabs: vec![
-                        "scene_diagnostics".into(),
-                        "material_resolver_diag".into(),
-                        "scripting_diag".into(),
-                    ],
-                    active_tab: 0,
-                },
-                0.5,
-            ),
-            0.75,
-        ),
-        0.15,
-    )
 }
 
 /// Settings → Plugins → "Stats Refresh": three sliders setting how often the
@@ -497,7 +370,7 @@ fn commit_refresh(
         };
         let before = *s;
         apply(&mut s, n);
-        // A drag fires many sub-step changes that round to the same ms — only
+        // A drag fires many sub-step changes that round to the same ms: only
         // touch the resource tick + persist when the value actually moved, so we
         // don't write the TOML dozens of times per drag.
         if *s == before {
@@ -561,6 +434,7 @@ where
 
 // `plugin!` rather than `add!`: this is a native plugin now, compiled against
 // the staged SDK and loaded from `plugins/` at startup, not an rlib the build
-// generator links into the editor binary. `Editor` is `plugin!`'s default and is
-// what this wants — a shipped game has no dock to put a panel in.
+// generator links into the editor binary. `Editor`, `plugin!`'s default: its
+// snapshot updaters run only in the editor state, so in a game the probes would
+// report nothing. Running them in a game that allows profiling is a later step.
 renzora::plugin!(DebuggerPlugin);
