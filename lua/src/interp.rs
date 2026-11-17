@@ -76,7 +76,30 @@ pub struct LuaBackend {
     /// The engine's declared bindings, pulled from the context rather than
     /// pushed in. Behind a `Mutex` because every hook takes `&self`.
     bindings: Mutex<BindingCache>,
+    /// Per script path, the hooks its last-built VM defines. Answers
+    /// `defines_hook`, so the engine can skip building a context for a hook
+    /// the script does not have. Rewritten each time a VM is built, which is
+    /// also what an edit to the script leads to.
+    defined_hooks: Mutex<HashMap<String, Vec<&'static str>>>,
 }
+
+/// The hooks `defines_hook` can answer for. Only the fixed hook is asked
+/// about today; the rest are cheap to record and ready for when they are.
+const KNOWN_HOOKS: &[&str] = &[
+    "on_ready",
+    "on_update",
+    "on_fixed_update",
+    "on_ui",
+    "on_draw",
+    "on_rpc",
+    "on_animation_event",
+    "on_http",
+    "on_player_joined",
+    "on_player_left",
+    "on_scene_loaded",
+    "on_scene_load_failed",
+    "on_event",
+];
 
 /// The binding list a VM was built against, and a counter for noticing it moved.
 #[derive(Default)]
@@ -189,6 +212,14 @@ impl LuaBackend {
             lua.load(&source)
                 .exec()
                 .map_err(|e| format!("Lua error: {e}"))?;
+            let defined: Vec<&'static str> = KNOWN_HOOKS
+                .iter()
+                .copied()
+                .filter(|hook| matches!(lua.globals().get::<LuaValue>(*hook), Ok(LuaValue::Function(_))))
+                .collect();
+            if let Ok(mut map) = self.defined_hooks.lock() {
+                map.insert(key.1.clone(), defined);
+            }
             instances.insert(
                 key.clone(),
                 LuaInstance {
@@ -357,6 +388,18 @@ impl ScriptBackend for LuaBackend {
         // Stable order, so the picker does not reshuffle between launches.
         out.sort_by(|a, b| a.0.cmp(&b.0));
         out
+    }
+
+    /// From the hooks recorded when the script's VM was last built. Unknown
+    /// until one has been (the first frame builds it), and never answered for
+    /// "any hook": Lua scripts are run by the engine's executor.
+    fn defines_hook(&self, path: &Path, hook: &str) -> Option<bool> {
+        if hook == renzora::ANY_HOOK {
+            return None;
+        }
+        let map = self.defined_hooks.lock().ok()?;
+        map.get(path.to_string_lossy().as_ref())
+            .map(|defined| defined.contains(&hook))
     }
 
     fn get_script_props(&self, path: &Path) -> Vec<VarDef> {
