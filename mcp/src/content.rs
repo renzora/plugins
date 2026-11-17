@@ -38,9 +38,11 @@ use crate::{edits, ToolReply};
 /// What each `list_assets` kind means, by file extension.
 const KINDS: &[(&str, &[&str])] = &[
     ("materials", &["material"]),
+    // `.rvg` first: it is what an import stores a model as now. Without it
+    // here a project of imported models listed none at all.
     (
         "models",
-        &["glb", "gltf", "fbx", "obj", "stl", "ply", "dae", "usd", "usda", "usdc", "usdz", "abc"],
+        &["rvg", "glb", "gltf", "fbx", "obj", "stl", "ply", "dae", "usd", "usda", "usdc", "usdz", "abc"],
     ),
     ("particles", &["particle"]),
     ("ui", &["html"]),
@@ -270,6 +272,17 @@ pub fn list_assets(world: &World, args: &Value) -> ToolReply {
     ToolReply::Text(out)
 }
 
+/// An `.rvg` with a same-named `.glb` or `.gltf` beside it: the clusters the
+/// engine bakes for that model, not a model of its own. It loads with no scene,
+/// so offering it to `spawn_model` placed nothing. The asset browser hides it
+/// by the same rule.
+fn is_sidecar(path: &Path) -> bool {
+    path.extension().is_some_and(|e| e.eq_ignore_ascii_case("rvg"))
+        && (["glb", "gltf"].iter().any(|ext| path.with_extension(ext).is_file())
+            // A terrain chunk's clusters, built by the editor: not a model either.
+            || path.components().any(|c| c.as_os_str() == "terrain_clusters"))
+}
+
 fn walk(root: &Path, dir: &Path, exts: &[&str], contains: Option<&str>, out: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -287,7 +300,7 @@ fn walk(root: &Path, dir: &Path, exts: &[&str], contains: Option<&str>, out: &mu
             .extension()
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default();
-        if !exts.contains(&ext.as_str()) {
+        if !exts.contains(&ext.as_str()) || is_sidecar(&path) {
             continue;
         }
         let Some(rel) = relative_to(root, &path) else {

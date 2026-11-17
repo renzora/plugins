@@ -577,6 +577,12 @@ pub(super) fn duplicate_entity(world: &mut World, args: &Value) -> ToolReply {
     ))
 }
 
+/// One copy of `entity` and its subtree, named uniquely, not recorded for
+/// undo: for a caller that records its own step (`scatter` records the group).
+pub(crate) fn duplicate_copy(world: &mut World, entity: Entity, offset: Option<Vec3>) -> Entity {
+    duplicate_once(world, entity, None, offset)
+}
+
 /// One copy, named uniquely and moved by `offset`.
 fn duplicate_once(world: &mut World, entity: Entity, name: Option<&str>, offset: Option<Vec3>) -> Entity {
     let copy = clone_subtree(world, entity);

@@ -152,6 +152,28 @@ pub(super) fn remove_component(world: &mut World, args: &Value) -> ToolReply {
     ToolReply::Text(format!("removed {short} from {}", entity_id(entity)))
 }
 
+/// `layers.1.tint` as `layers[1].tint`.
+///
+/// Bevy's reflection paths index a list with brackets, and a dotted number
+/// reads as a tuple field called `1`, so `layers.1.tint` (what
+/// `inspect_entity` prints) failed with nothing to say why. Only a fallback:
+/// a dotted number is right for a tuple field, so the caller tries the path as
+/// written first.
+fn list_indices_bracketed(path: &str) -> String {
+    let mut out = String::new();
+    for (i, segment) in path.split('.').enumerate() {
+        if i > 0 && !segment.is_empty() && segment.bytes().all(|b| b.is_ascii_digit()) {
+            out.push_str(&format!("[{segment}]"));
+        } else {
+            if i > 0 {
+                out.push('.');
+            }
+            out.push_str(segment);
+        }
+    }
+    out
+}
+
 pub(super) fn set_component_field(world: &mut World, args: &Value) -> ToolReply {
     let Some(entity) = arg_entity(args, "entity") else {
         return ToolReply::Failed("set_component_field needs an entity id".into());
@@ -171,24 +193,28 @@ pub(super) fn set_component_field(world: &mut World, args: &Value) -> ToolReply 
         );
     };
 
-    if edits::set_field(world, entity, component, field, value.clone()) {
-        return ToolReply::Text(format!(
-            "set {component}.{field} on {}",
-            entity_id(entity)
-        ));
+    // The path as written first: a dotted number is also how a tuple field is
+    // reached (`color.0.alpha`), so the bracketed reading is only the fallback.
+    let bracketed = list_indices_bracketed(field);
+    let mut paths = vec![field];
+    if bracketed != field {
+        paths.push(bracketed.as_str());
     }
+    for path in paths {
+        if edits::set_field(world, entity, component, path, value.clone()) {
+            return ToolReply::Text(format!("set {component}.{path} on {}", entity_id(entity)));
+        }
 
-    // A float field rejects an Int and vice versa, and JSON cannot tell 1 from
-    // 1.0. Rather than making the caller guess which one the field wants, try the
-    // other reading of a whole number before reporting failure.
-    if let PropertyValue::Float(f) = value {
-        if f.fract() == 0.0
-            && edits::set_field(world, entity, component, field, PropertyValue::Int(f as i64))
-        {
-            return ToolReply::Text(format!(
-                "set {component}.{field} on {}",
-                entity_id(entity)
-            ));
+        // A float field rejects an Int and vice versa, and JSON cannot tell 1
+        // from 1.0. Rather than making the caller guess which one the field
+        // wants, try the other reading of a whole number before reporting
+        // failure.
+        if let PropertyValue::Float(f) = value {
+            if f.fract() == 0.0
+                && edits::set_field(world, entity, component, path, PropertyValue::Int(f as i64))
+            {
+                return ToolReply::Text(format!("set {component}.{path} on {}", entity_id(entity)));
+            }
         }
     }
 

@@ -26,7 +26,7 @@ const PROTOCOL_VERSION: &str = "2025-06-18";
 /// builds a native plugin by calling rustc directly and cargo is what sets that
 /// variable. It compiled here only while the editor had been started through
 /// cargo and inherited it; launched any other way, the plugin failed to build.
-const SERVER_VERSION: &str = "1.2.0";
+const SERVER_VERSION: &str = "1.6.0";
 
 /// How long a tool may take before the caller is told it did not finish.
 ///
@@ -47,6 +47,10 @@ const IMPORT_TIMEOUT: Duration = Duration::from_secs(120);
 /// long drag or a paragraph of typing at a slow frame rate needs more than the
 /// default. Longer than the player's own limit, so the caller hears its reason.
 const INPUT_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// A reload waits for the whole project load. Longer than the tool's own
+/// deadline in `load.rs`, so the caller hears what was recorded by then.
+const LOAD_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// How long without a frame before a call is refused outright as frozen.
 /// Comfortably longer than the slowest real frame, a project load, so a busy
@@ -140,6 +144,7 @@ fn call(id: Value, params: &Value, tx: &Sender<ToolCall>, state: &ServerState) -
     let timeout = match name {
         "screenshot" | "game_screenshot" => SCREENSHOT_TIMEOUT,
         "import_model" => IMPORT_TIMEOUT,
+        crate::load::TOOL => LOAD_TIMEOUT,
         n if crate::input::is_input_tool(n) => INPUT_TIMEOUT,
         _ => CALL_TIMEOUT,
     };
@@ -315,6 +320,45 @@ fn catalogue() -> Value {
             "name": "screenshot",
             "description": "A PNG of the editor window as it looks now, including the panels and the viewport. It does not show the running game's own window; use game_screenshot for that.",
             "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "profiler_record",
+            "description": "Start or stop recording a profile in the companion. Records the editor itself unless game names another (a game started with Play, or an export with profiling allowed; profiler_status lists them). Recording costs the recorded process about half a millisecond a frame. Wait a few seconds, then ask profiler_summary or profiler_spikes.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "on": { "type": "boolean", "description": "True to record (default), false to stop. Stopping keeps the capture for questions." },
+                    "game": { "type": "string", "description": "Part of the name of the game to record, as profiler_status lists it. The editor is \"Editor\"." }
+                }
+            }
+        },
+        {
+            "name": "profiler_status",
+            "description": "What the companion is profiling, whether it is recording, how much it has captured, and which games can be profiled.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "profiler_summary",
+            "description": "Where the time goes over the last few seconds of the capture: frame time mean, p50, p95, p99 and max, fps, frames over 16.6 and 33.3 ms, the slowest systems by time per frame, GPU time per pass, and entity count. Systems are named by their Rust path, so each points at code.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "seconds": { "type": "number", "description": "How far back to look. Default 5." },
+                    "limit": { "type": "integer", "description": "Rows of systems and GPU passes. Default 15." }
+                }
+            }
+        },
+        {
+            "name": "profiler_spikes",
+            "description": "The slowest frames in the last few seconds, and for each, which systems took longer than they usually do: what caused the hitch rather than what is always expensive.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "seconds": { "type": "number", "description": "How far back to look. Default 5." },
+                    "over_ms": { "type": "number", "description": "Only frames slower than this, e.g. 16.6. Default: the slowest frames whatever their time." },
+                    "limit": { "type": "integer", "description": "How many frames to explain, at most 10. Default 10." }
+                }
+            }
         },
         {
             "name": "game_screenshot",
@@ -746,6 +790,12 @@ fn catalogue() -> Value {
     if let (Some(list), Value::Array(input)) = (tools.as_array_mut(), crate::input::catalogue()) {
         list.extend(input);
     }
+    if let (Some(list), Value::Array(terrain)) = (tools.as_array_mut(), crate::terrain::catalogue()) {
+        list.extend(terrain);
+    }
+    if let (Some(list), Value::Array(load)) = (tools.as_array_mut(), crate::load::catalogue()) {
+        list.extend(load);
+    }
     annotate(&mut tools);
     tools
 }
@@ -770,7 +820,8 @@ fn annotate(tools: &mut Value) {
         let (read_only, destructive) = match name.as_str() {
             // Looking, in every case.
             "editor_state" | "read_console" | "scene_tree" | "inspect_entity" | "screenshot"
-            | "list_shapes" | "list_assets" | "list_presets" | "ui_find" => (true, false),
+            | "list_shapes" | "list_assets" | "list_presets" | "ui_find" | "terrain_height"
+            | "memory_report" => (true, false),
             // Gone for good: a despawn does not reach the editor's undo stack.
             "despawn_entity" => (false, true),
             // Changes the world, recoverably by doing something else.

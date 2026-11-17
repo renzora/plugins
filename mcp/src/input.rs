@@ -10,12 +10,14 @@
 //!
 //! # Injection
 //!
-//! Events are written as the messages winit would have written: the specific
-//! message (`CursorMoved`, `MouseButtonInput`, `KeyboardInput`, `MouseWheel`)
-//! for `ButtonInput` and the systems that read those, and its `WindowEvent`
-//! copy for picking, which reads only that. They go in from `First`, ahead of
-//! picking's input pass (which runs there) and the `PreUpdate` input set, so
-//! both see the same frame's events, as they do for a real click.
+//! Events are written as winit's backend writes them: a `WindowEvent` only.
+//! Picking reads that directly, and Bevy splits it into the specific message
+//! (`CursorMoved`, `MouseButtonInput`, `KeyboardInput`, `MouseWheel`) for
+//! `ButtonInput` and the rest in `PreUpdate`, ahead of the input set. Writing
+//! the specific message as well, as this used to, delivers every key, click
+//! and scroll twice: typing came out as "ClClououdsds". They go in from
+//! `First`, ahead of picking's input pass (which runs there), so both see the
+//! same frame's events, as they do for a real click.
 //!
 //! One step per frame. A press and its release in the same frame is a click
 //! some widgets never see, because ember clears a press in `Last` only once the
@@ -29,7 +31,17 @@
 //! the window's cursor is moved to the agent's pointer for the frame. It is put
 //! back in `PostUpdate`. Left moved, bevy_winit would see it differ from its
 //! cache in `Last` and warp the operating system's cursor there, taking the
-//! mouse out from under the person watching.
+//! mouse out from under the person watching. The override carries on between
+//! runs, every frame, until the person moves their mouse: the pointer is still
+//! resting where the agent left it, and hover that reads the window's cursor
+//! (a submenu kept open by it) has to see it there too.
+//!
+//! "The person moved their mouse" is read from the raw `WindowEvent`s the OS
+//! delivered this frame, never from `Window::cursor_position`. Bevy only copies
+//! a move into the window in `PreUpdate`, after this runs in `First`, so the
+//! window still showed the old position: the override never ended, and putting
+//! that stale position back in `PostUpdate` undid every move the person made.
+//! bevy_winit then warped the real cursor to it, and the mouse was stuck.
 //!
 //! # The MCP cursor
 //!
@@ -39,7 +51,7 @@
 //! changes state by itself, which is hard to follow and impossible to tell from
 //! a bug.
 
-use bevy::ecs::message::MessageUpdateSystems;
+use bevy::ecs::message::{MessageCursor, MessageUpdateSystems, Messages};
 use bevy::input::keyboard::{Key, KeyboardInput, NativeKeyCode};
 use bevy::input::mouse::{MouseButtonInput, MouseMotion, MouseScrollUnit, MouseWheel};
 use bevy::input::touch::TouchPhase;
@@ -48,7 +60,7 @@ use bevy::math::DVec2;
 use bevy::picking::PickingSystems;
 use bevy::prelude::*;
 use bevy::ui::{CalculatedClip, ComputedNode, Pressed, UiGlobalTransform, UiScale};
-use bevy::window::{CursorMoved, PrimaryWindow, WindowEvent};
+use bevy::window::{PrimaryWindow, RawCursorMoved, WindowEvent};
 use renzora::serde_json::{json, Value};
 use renzora::HideInHierarchy;
 use renzora_ember::workspace::WorkspaceSwitch;
@@ -120,6 +132,18 @@ pub struct InputPlayer {
     /// The window's own cursor position from before this frame's override, to
     /// put back in `PostUpdate`. Outer `Some` means there is something to undo.
     restore: Option<Option<DVec2>>,
+    /// The agent's pointer was the last to move, so it keeps standing in for
+    /// the window's cursor between runs. Picking keeps the agent's pointer
+    /// where it stopped, but code reading `Window::cursor_position` went back
+    /// to the person's mouse the frame a run ended, and the two disagreed: a
+    /// submenu reached by `move_mouse` stays open only while that position is
+    /// over it, so it closed under the agent's pointer and the next click fell
+    /// through to the viewport behind. Ends when the person's mouse moves.
+    owns_cursor: bool,
+    /// How far through the window's events this player has read. Everything it
+    /// writes itself is stepped past the same frame, so what it reads next is
+    /// only what the operating system delivered: the person's own mouse.
+    seen: MessageCursor<WindowEvent>,
     last_active: Option<Instant>,
     pressing: bool,
     /// When the last press went down, for the cursor's pulse.
@@ -175,8 +199,42 @@ fn play(world: &mut World) {
     };
 
     let mut player = std::mem::take(&mut *world.resource_mut::<InputPlayer>());
+    let moved = person_moved(world, window, &mut player);
+    if moved.is_some() {
+        player.owns_cursor = false;
+    }
+    play_frame(world, window, &mut player, moved);
+    // Everything written since the read above is this player's own input.
+    if let Some(messages) = world.get_resource::<Messages<WindowEvent>>() {
+        player.seen.read(messages).for_each(drop);
+    }
+    *world.resource_mut::<InputPlayer>() = player;
+}
+
+/// Where the person's own mouse went this frame, if it moved: `Some(None)` when
+/// it left the window. Read from the raw events, not the window; see the
+/// module docs for why the window is a frame behind here.
+fn person_moved(world: &World, window: Entity, player: &mut InputPlayer) -> Option<Option<DVec2>> {
+    let messages = world.get_resource::<Messages<WindowEvent>>()?;
+    let mut moved = None;
+    for event in player.seen.read(messages) {
+        match event {
+            WindowEvent::CursorMoved(e) if e.window == window => moved = Some(Some(e.physical_position)),
+            WindowEvent::CursorLeft(e) if e.window == window => moved = Some(None),
+            _ => {}
+        }
+    }
+    moved
+}
+
+/// Everything `play` does once the person's own movement is known.
+fn play_frame(world: &mut World, window: Entity, player: &mut InputPlayer, moved: Option<Option<DVec2>>) {
     if player.jobs.is_empty() {
-        *world.resource_mut::<InputPlayer>() = player;
+        if player.owns_cursor {
+            if let Some(pos) = player.pos {
+                place_window_cursor(world, window, pos, player, moved);
+            }
+        }
         return;
     }
     player.last_active = Some(Instant::now());
@@ -193,7 +251,7 @@ fn play(world: &mut World) {
 
     if player.jobs.front().is_some_and(|j| j.started.elapsed() > JOB_LIMIT) {
         let job = player.jobs.pop_front();
-        release_everything(world, window, &mut player);
+        release_everything(world, window, player);
         if let Some(job) = job {
             let _ = job.reply.send(ToolReply::Failed(format!(
                 "{} did not finish in {}s; every held button and key was released",
@@ -201,20 +259,26 @@ fn play(world: &mut World) {
                 JOB_LIMIT.as_secs()
             )));
         }
-        *world.resource_mut::<InputPlayer>() = player;
         return;
     }
 
     // Hold the window's cursor on the agent's pointer for this frame, so code
     // reading it rather than picking agrees with where the pointer is.
     if let Some(pos) = player.pos {
-        place_window_cursor(world, window, pos, &mut player);
+        place_window_cursor(world, window, pos, player, moved);
+        // The person's mouse moved mid-run: picking reads their move like any
+        // other, so a click aimed at a tab went to whatever their mouse was
+        // over instead. Restating the agent's pointer after it, in the same
+        // frame, makes the agent's position the one picking ends the frame on.
+        if moved.is_some() {
+            write_move(world, window, pos, pos);
+        }
     }
 
     let caption = player.jobs.front().map(|j| j.caption.clone()).unwrap_or_default();
     player.caption = caption;
 
-    let finished = step(world, window, &mut player);
+    let finished = step(world, window, player);
     if finished {
         if let Some(job) = player.jobs.pop_front() {
             let mut text = job.summary.clone();
@@ -225,8 +289,8 @@ fn play(world: &mut World) {
             }
             let _ = job.reply.send(ToolReply::Text(text));
         }
+        player.owns_cursor = player.pos.is_some();
     }
-    *world.resource_mut::<InputPlayer>() = player;
 }
 
 /// Advance the front job by one frame. True once it has nothing left to do.
@@ -329,10 +393,20 @@ fn pressed_now(world: &mut World) -> Vec<String> {
     hits.into_iter().map(|e| describe(world, e)).collect()
 }
 
-fn place_window_cursor(world: &mut World, window: Entity, pos: Vec2, player: &mut InputPlayer) {
+/// Stand the window's cursor on the agent's pointer until `PostUpdate`.
+/// `moved` is where the person's mouse went this frame: the window has not
+/// caught up with it yet, so it is what gets put back, not the window's value.
+fn place_window_cursor(
+    world: &mut World,
+    window: Entity,
+    pos: Vec2,
+    player: &mut InputPlayer,
+    moved: Option<Option<DVec2>>,
+) {
     if let Some(mut win) = world.get_mut::<Window>(window) {
         if player.restore.is_none() {
-            player.restore = Some(win.physical_cursor_position().map(|p| p.as_dvec2()));
+            let person = moved.unwrap_or_else(|| win.physical_cursor_position().map(|p| p.as_dvec2()));
+            player.restore = Some(person);
         }
         win.set_physical_cursor_position(Some(pos.as_dvec2()));
     }
@@ -355,14 +429,11 @@ fn scale_factor(world: &World, window: Entity) -> f32 {
 
 fn write_move(world: &mut World, window: Entity, from: Vec2, to: Vec2) {
     let scale = scale_factor(world, window);
-    let position = to / scale;
     let delta = (to - from) / scale;
     if let Some(mut win) = world.get_mut::<Window>(window) {
         win.set_physical_cursor_position(Some(to.as_dvec2()));
     }
-    let moved = CursorMoved { window, position, delta: Some(delta) };
-    world.write_message(moved.clone());
-    world.write_message(WindowEvent::from(moved));
+    world.write_message(WindowEvent::from(RawCursorMoved { window, physical_position: to.as_dvec2() }));
     // Orbit and pan read raw motion, which a cursor that is only told where to
     // be never produces.
     if delta != Vec2::ZERO {
@@ -376,7 +447,6 @@ fn write_button(world: &mut World, window: Entity, button: MouseButton, down: bo
         state: if down { ButtonState::Pressed } else { ButtonState::Released },
         window,
     };
-    world.write_message(input);
     world.write_message(WindowEvent::from(input));
 }
 
@@ -389,13 +459,11 @@ fn write_key(world: &mut World, window: Entity, code: KeyCode, key: Key, down: b
         repeat: false,
         window,
     };
-    world.write_message(input.clone());
     world.write_message(WindowEvent::from(input));
 }
 
 fn write_wheel(world: &mut World, window: Entity, lines: f32) {
     let wheel = MouseWheel { unit: MouseScrollUnit::Line, x: 0.0, y: lines, window, phase: TouchPhase::Moved };
-    world.write_message(wheel);
     world.write_message(WindowEvent::from(wheel));
 }
 
@@ -418,7 +486,15 @@ fn plan(world: &mut World, name: &str, args: &Value) -> Result<Plan, String> {
             steps.push_back(glide(from, at));
             steps.push_back(Step::Wait(1));
             press_modifiers(&mut steps, &modifiers, true);
-            for _ in 0..count {
+            for i in 0..count {
+                if i > 0 {
+                    // A frame with the button up between clicks, as a hand
+                    // gives. Ember clears a press in `Last` and only recomputes
+                    // a widget's state in the next `PreUpdate`; a second press
+                    // on the very next frame lands before that, the state reads
+                    // Pressed both times, and a double-click is seen as one.
+                    steps.push_back(Step::Wait(2));
+                }
                 steps.push_back(Step::Button { button, down: true });
                 steps.push_back(Step::Button { button, down: false });
             }

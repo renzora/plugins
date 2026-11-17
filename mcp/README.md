@@ -61,6 +61,14 @@ the console of whatever project is open.
 | `add_ui` | Show an `.html` UI template on a canvas of its own |
 | `list_presets` / `spawn_preset` | Everything the Add Entity menu offers: cameras, terrain, environment, probes |
 | `set_default_camera` | Choose the scene camera play mode looks through |
+| `terrain_height` | Ground height and slope at world `[x, z]` points |
+| `place_on_ground` | Drop entities onto the terrain, optionally tilted to its slope |
+| `sculpt_terrain` | Drag any terrain brush along a path of world points |
+| `generate_terrain` / `erode_terrain` | Generate landforms, then weather them with rain and slope settling |
+| `scatter` | Copies of an entity across an area, by slope and height rules, in one undo step |
+| `terrain_layers` / `paint_terrain` | List a landscape material's layers, then paint them along a path |
+| `set_terrain_material` | Give a terrain a landscape material |
+| `build_terrain_graph` | Build a terrain generator graph (`.tgraph`) into a terrain |
 | `undo` | Step the scene's undo history back, or forward with `redo` |
 | `key_pose` | Key bones' current pose at the timeline's playhead, as K over the viewport does |
 | `set_autosave` | Pause autosave for this session, so test edits are not saved into a real scene |
@@ -69,6 +77,12 @@ the console of whatever project is open.
 | `set_play_mode` | play, pause, stop or simulate |
 | `save_scene` | What Ctrl+S does |
 | `editor_request` | What the menus ask for: new/open/save-as scene, export, import, settings |
+| `profiler_record` | Start or stop recording the editor, or a running game, in the companion |
+| `profiler_status` | What the companion is profiling, how much it has, and what else it could |
+| `profiler_summary` | Frame times, the slowest systems and GPU passes over the last few seconds |
+| `profiler_spikes` | The slowest frames, and what took longer than usual in each |
+| `memory_report` | What the editor holds in memory now, by kind of asset, and how much is outside the assets |
+| `project_load` | How long the last project load took, stage by stage; with `reload`, reopens the project (unsaved-changes prompt included) and times a fresh load; with `wait`, times the next load however it starts, such as a project opened from the launcher |
 
 Entity ids are opaque strings. They are the decimal form of `Entity::to_bits`,
 and strings rather than numbers because those bits pack a generation into the

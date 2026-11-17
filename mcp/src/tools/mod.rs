@@ -31,6 +31,7 @@ mod observe;
 mod scene;
 
 pub use observe::read_complete_png;
+pub(crate) use scene::duplicate_copy;
 pub(crate) use scene::material_handle;
 pub use scene::AssetCache;
 
@@ -88,6 +89,20 @@ fn dispatch(world: &mut World, call: ToolCall) {
         crate::game::start_game_screenshot(world, reply);
         return;
     }
+    // Answered by the companion, a frame or two later.
+    if crate::profiler::is_profiler_tool(&name) {
+        crate::profiler::start(world, &name, &args, reply);
+        return;
+    }
+    if crate::terrain::is_terrain_tool(&name) {
+        let _ = reply.send(crate::terrain::run(world, &name, &args));
+        return;
+    }
+    // Answered when the project has finished loading.
+    if name == crate::load::TOOL {
+        crate::load::start(world, &args, reply);
+        return;
+    }
     // Input plays out over several frames, one step each.
     if crate::input::is_input_tool(&name) {
         crate::input::start(world, &name, &args, reply);
@@ -131,6 +146,7 @@ fn dispatch(world: &mut World, call: ToolCall) {
         "spawn_preset" => content::spawn_preset(world, &args),
         "set_default_camera" => content::set_default_camera(world, &args),
         "ui_find" => crate::input::ui_find(world, &args),
+        crate::load::MEMORY_TOOL => crate::load::memory_report(world),
         "set_workspace" => crate::input::set_workspace(world, &args),
         other => ToolReply::Failed(format!("no such tool: {other}")),
     };

@@ -34,6 +34,8 @@ pub(super) fn editor_state(world: &mut World) -> ToolReply {
         }
         None => out.push_str("project: none open\n"),
     }
+    out.push_str(&crate::load::phase(world));
+    out.push('\n');
 
     let mode = match world.get_resource::<PlayModeState>() {
         Some(play) if play.is_playing() => "playing",

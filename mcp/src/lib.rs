@@ -41,7 +41,10 @@ mod edits;
 mod game;
 mod http;
 mod input;
+mod load;
+mod profiler;
 mod rpc;
+mod terrain;
 mod tools;
 
 /// The console category every line from this plugin carries, so the Console's
@@ -244,6 +247,8 @@ impl Plugin for McpPlugin {
         )
         .add_systems(Startup, announce);
         input::build(app);
+        profiler::build(app);
+        load::build(app);
 
         app.register_shell_status_item(ShellStatusItem {
             id: "mcp",
