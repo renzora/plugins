@@ -10,7 +10,7 @@
 
 [package]
 name = "auto_exposure"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "Auto exposure — histogram metering with a keep-dark compensation curve."
 

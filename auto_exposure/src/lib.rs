@@ -25,6 +25,20 @@
 //! Note: Bevy's AE doesn't add itself via `DefaultPlugins` — its
 //! `AutoExposurePlugin` is opt-in. We add it from our `build` hook so
 //! enabling AutoExposureSettings on any entity Just Works.
+//!
+//! # Independent of the manual EV100
+//!
+//! Bevy meters the frame *after* the camera's manual `Exposure` has scaled
+//! it, and adds its correction on top. The histogram range and the
+//! keep-dark curve are therefore in exposure-scaled units, so the same
+//! settings meant different things at different manual EV100s: a scene saved
+//! at EV100 9.7 metered 3.8 stops brighter than at 13.5, landed above the
+//! keep-dark pivot, got no correction and rendered washed out, while 13.5
+//! looked right. The settings are now authored against
+//! [`REFERENCE_EV100`], and both the range and the curve are shifted by how
+//! far the camera's manual EV100 is from it. That cancels exactly, so with
+//! auto exposure on the picture no longer depends on the manual value, which
+//! only takes effect when auto exposure is off.
 
 use bevy::camera::Exposure;
 use bevy::curve::cubic_splines::LinearSpline;
@@ -43,12 +57,20 @@ pub mod inspector;
 /// `renzora_auto_exposure::AutoExposureSettings` still resolves.
 pub use renzora::AutoExposureSettings;
 
+/// The manual EV100 the range and keep-dark settings are expressed against:
+/// a new camera's default. See the module doc.
+pub const REFERENCE_EV100: f32 = 13.5;
+
 /// Cached compensation-curve asset, rebuilt only when the curve-shaping
 /// settings change (so we don't churn an asset every frame).
 #[derive(Resource, Default)]
 struct AeCompensation {
     handle: Handle<AutoExposureCompensationCurve>,
-    key: Option<(u32, u32, u32, u32)>,
+    key: Option<(u32, u32, u32, u32, u32)>,
+    /// Stops the camera's manual EV100 sits above [`REFERENCE_EV100`]. The
+    /// metered values are this many stops darker than at the reference, so
+    /// the curve and the histogram range move down by the same amount.
+    offset: f32,
 }
 
 /// (Re)build the exposure-compensation curve when its shaping inputs change.
@@ -60,24 +82,33 @@ struct AeCompensation {
 /// `keep_dark_strength` darkens night harder; a higher `keep_dark_pivot_ev`
 /// pulls more of the dim range down.
 fn build_compensation_curve(
-    sources: Query<&AutoExposureSettings>,
+    sources: Query<(&AutoExposureSettings, Option<&Exposure>)>,
+    scene_cameras: Query<&Exposure, With<renzora::SceneCamera>>,
     mut curves: ResMut<Assets<AutoExposureCompensationCurve>>,
     mut comp: ResMut<AeCompensation>,
 ) {
-    // One AE source drives the look (the World Environment); prefer an enabled
-    // one, else just the first present.
-    let Some(s) = sources
+    // One AE source drives the look (normally the scene camera); prefer an
+    // enabled one, else just the first present.
+    let Some((s, own_exposure)) = sources
         .iter()
-        .find(|s| s.enabled)
+        .find(|(s, _)| s.enabled)
         .or_else(|| sources.iter().next())
     else {
         return;
     };
+    // The manual EV100 the metering happens under: the source's own when it
+    // is the camera, else the scene camera's (older scenes keep the settings
+    // on the World Environment).
+    let manual = own_exposure
+        .or_else(|| scene_cameras.iter().next())
+        .map_or(REFERENCE_EV100, |e| e.ev100);
+    let offset = manual - REFERENCE_EV100;
     let key = (
         s.keep_dark_strength.to_bits(),
         s.keep_dark_pivot_ev.to_bits(),
         s.range_min.to_bits(),
         s.range_max.to_bits(),
+        offset.to_bits(),
     );
     if comp.key == Some(key) {
         return;
@@ -96,12 +127,16 @@ fn build_compensation_curve(
     let pivot = s.keep_dark_pivot_ev.clamp(lo + 0.001, top);
     let strength = s.keep_dark_strength.max(0.0);
     let comp_lo = -strength * (pivot - lo);
-    let points = vec![vec2(lo, comp_lo), vec2(pivot, 0.0)];
+    // Built at the reference, then moved along the metering axis only: the
+    // compensation for a given scene is the same, it is just read at a
+    // different metered value.
+    let points = vec![vec2(lo - offset, comp_lo), vec2(pivot - offset, 0.0)];
 
     match AutoExposureCompensationCurve::from_curve(LinearSpline::new(points)) {
         Ok(curve) => {
             comp.handle = curves.add(curve);
             comp.key = Some(key);
+            comp.offset = offset;
         }
         Err(e) => warn!("[auto_exposure] compensation curve build failed: {e:?}"),
     }
@@ -131,7 +166,7 @@ fn sync_auto_exposure(
                 }
                 if settings.enabled {
                     commands.entity(*target).insert(AutoExposure {
-                        range: settings.range_min..=settings.range_max,
+                        range: (settings.range_min - comp.offset)..=(settings.range_max - comp.offset),
                         filter: settings.filter_low..=settings.filter_high,
                         speed_brighten: settings.speed_brighten,
                         speed_darken: settings.speed_darken,
