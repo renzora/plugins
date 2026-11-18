@@ -55,8 +55,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let grid_res = 8.0 + density * 22.0;
 
     // Angular radius of each star in radians
-    // star_size 1.0 → ~0.003 rad (~0.17°, roughly 2-3px diameter at 1080p 90° FOV)
-    let angular_radius = star_size * 0.003;
+    // star_size 1.0 → ~0.0016 rad (~0.09°, a pixel or two at 1080p 90° FOV).
+    // Half what it was: at 0.003 every star read as a thick blob.
+    let angular_radius = star_size * 0.0016;
 
     let base_cell = floor(dir * grid_res);
     var out_val: f32 = 0.0;
@@ -69,7 +70,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
                 // Per-cell decision: does this cell contain a star?
                 let rng = hash31(cell + vec3<f32>(71.31, 11.71, 43.13));
-                if rng > density {
+                // Fewer than one star per cell: a real sky is mostly dark.
+                if rng > density * 0.6 {
                     continue;
                 }
 
@@ -96,7 +98,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
                 if contrib > 0.001 {
                     // Per-star brightness variation (makes some stars brighter than others)
-                    let star_br = 0.2 + hash31(cell + vec3<f32>(2.13, 9.37, 5.71)) * 0.8;
+                    // Most stars faint, a handful bright, as in a photo of
+                    // the night sky; an even spread made them all look alike.
+                    let star_br = 0.15 + pow(hash31(cell + vec3<f32>(2.13, 9.37, 5.71)), 4.0) * 0.85;
 
                     // Twinkling: each star has a unique phase offset
                     let phase = hash31(cell) * TAU;
