@@ -29,6 +29,6 @@ renzora = { path = "../../engine/crates/renzora", features = ["editor"] }
 marketplace_id = "weather"
 category = "plugins"
 name = "Dynamic Weather"
-tags = ["rendering", "weather", "sky", "clouds", "rain", "environment"]
+tags = ["rendering", "weather", "sky", "clouds", "rain"]
 price_credits = 0
 min_engine_version = "r1-alpha8"
