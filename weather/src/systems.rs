@@ -17,6 +17,11 @@ use crate::look::{self, WeatherLook};
 const SOAK_SECONDS: f32 = 90.0;
 const DRY_SECONDS: f32 = 360.0;
 
+/// Seconds of heavy snowfall to cover the ground, and for a full cover to
+/// melt once it stops. Snow lies longer than rain stays wet.
+const SETTLE_SECONDS: f32 = 150.0;
+const MELT_SECONDS: f32 = 900.0;
+
 const STRIKE_SECONDS: f32 = 0.7;
 
 /// The engine's environment map settings: the sky's ambient light and
@@ -69,11 +74,19 @@ impl WeatherDriver {
         lo + (hi - lo).max(0.0) * self.random()
     }
 
-    fn pick_successor(&mut self, from: WeatherPreset) -> WeatherPreset {
-        let options = from.successors();
+    fn pick_successor(&mut self, from: WeatherPreset, allow_snow: bool) -> WeatherPreset {
+        let options: Vec<(WeatherPreset, u32)> = from
+            .successors()
+            .iter()
+            .copied()
+            .filter(|(p, _)| allow_snow || *p != WeatherPreset::Snow)
+            .collect();
         let total: u32 = options.iter().map(|(_, w)| w).sum();
+        if total == 0 {
+            return from;
+        }
         let mut roll = (self.random() * total as f32) as u32;
-        for &(p, w) in options {
+        for &(p, w) in &options {
             if roll < w {
                 return p;
             }
@@ -111,6 +124,16 @@ fn soak(w: f32, to: f32, rain: f32, dt: f32) -> f32 {
         (w + dt * rain.max(0.2) / SOAK_SECONDS).min(to)
     } else {
         (w - dt / DRY_SECONDS).max(to)
+    }
+}
+
+/// Snow cover heads toward full while snow falls, at a pace set by how hard,
+/// and melts away slowly once it stops.
+fn settle(cover: f32, snow: f32, dt: f32) -> f32 {
+    if snow > 0.05 {
+        (cover + dt * snow / SETTLE_SECONDS).min(1.0)
+    } else {
+        (cover - dt / MELT_SECONDS).max(0.0)
     }
 }
 
@@ -198,7 +221,8 @@ fn drive(world: &mut World, driver: &mut WeatherDriver) {
         driver.entity = None;
         let mut state = world.resource_mut::<WeatherState>();
         let wetness = soak(state.wetness, 0.0, 0.0, dt);
-        *state = WeatherState { wetness, ..default() };
+        let snow_cover = settle(state.snow_cover, 0.0, dt);
+        *state = WeatherState { wetness, snow_cover, ..default() };
         return;
     };
 
@@ -273,7 +297,7 @@ fn drive(world: &mut World, driver: &mut WeatherDriver) {
     if weather.cycle && driver.t >= 1.0 {
         driver.hold -= dt;
         if driver.hold <= 0.0 {
-            let next = driver.pick_successor(weather.preset);
+            let next = driver.pick_successor(weather.preset, weather.snow_in_cycle);
             driver.hold = driver.range(weather.cycle_min_seconds, weather.cycle_max_seconds);
             if next != weather.preset {
                 if let Some(mut w) = world.get_mut::<Weather>(entity) {
@@ -317,10 +341,13 @@ fn drive(world: &mut World, driver: &mut WeatherDriver) {
     let mut state = world.resource_mut::<WeatherState>();
     let soak_to = if current.rain > 0.05 { 1.0 } else { 0.0 };
     let wetness = soak(state.wetness, soak_to, current.rain, dt);
+    let snow_cover = settle(state.snow_cover, current.snow, dt);
     *state = WeatherState {
         cloudiness: if base.has_clouds { current.clouds.coverage } else { 0.0 },
         rain: current.rain,
         wetness,
+        snow: current.snow,
+        snow_cover,
         lightning: flash,
     };
 }

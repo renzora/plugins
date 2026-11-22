@@ -11,9 +11,9 @@
 
 [package]
 name = "weather"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
-description = "Dynamic weather: presets from clear to storm that blend the clouds, sun, haze and wind over time, with rain around the camera and lightning in the clouds."
+description = "Dynamic weather: presets from clear to storm and snow that blend the clouds, sun, haze and wind over time, with rain and snow around the camera and lightning in the clouds."
 
 [lib]
 crate-type = ["dylib"]

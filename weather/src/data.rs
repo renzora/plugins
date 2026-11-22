@@ -22,20 +22,24 @@ pub enum WeatherPreset {
     Storm,
     /// Thick ground fog under a pale sky.
     Foggy,
+    /// A soft, bright, low deck with snow falling and drifting on the wind.
+    /// Last in the list so scenes saved before it existed keep their indices.
+    Snow,
 }
 
 impl WeatherPreset {
-    pub const ALL: [WeatherPreset; 6] = [
+    pub const ALL: [WeatherPreset; 7] = [
         WeatherPreset::Clear,
         WeatherPreset::PartlyCloudy,
         WeatherPreset::Overcast,
         WeatherPreset::Rain,
         WeatherPreset::Storm,
         WeatherPreset::Foggy,
+        WeatherPreset::Snow,
     ];
 
     /// The inspector's labels, in [`ALL`](Self::ALL) order.
-    pub const LABELS: [&'static str; 6] = ["Clear", "Partly Cloudy", "Overcast", "Rain", "Storm", "Foggy"];
+    pub const LABELS: [&'static str; 7] = ["Clear", "Partly Cloudy", "Overcast", "Rain", "Storm", "Foggy", "Snow"];
 
     pub fn label(self) -> &'static str {
         Self::LABELS[self as usize]
@@ -56,6 +60,7 @@ impl WeatherPreset {
             "rain" | "rainy" => Self::Rain,
             "storm" | "stormy" | "thunderstorm" => Self::Storm,
             "foggy" | "fog" | "mist" => Self::Foggy,
+            "snow" | "snowy" | "snowing" => Self::Snow,
             _ => return None,
         })
     }
@@ -66,15 +71,20 @@ impl WeatherPreset {
     /// through its stages: a clear sky clouds over before it rains, and a storm
     /// eases into rain before it clears. Jumping from blue sky straight to a
     /// thunderstorm reads as a bug, however slowly it blends.
+    ///
+    /// Snow comes out of an overcast sky like rain does, and goes back to
+    /// overcast. It is only reached when the scene allows it
+    /// ([`Weather::snow_in_cycle`]); otherwise it is dropped from the chain.
     pub fn successors(self) -> &'static [(WeatherPreset, u32)] {
         use WeatherPreset::*;
         match self {
             Clear => &[(Clear, 2), (PartlyCloudy, 5), (Foggy, 1)],
             PartlyCloudy => &[(Clear, 4), (PartlyCloudy, 2), (Overcast, 3)],
-            Overcast => &[(PartlyCloudy, 3), (Overcast, 1), (Rain, 3)],
+            Overcast => &[(PartlyCloudy, 3), (Overcast, 1), (Rain, 3), (Snow, 3)],
             Rain => &[(Overcast, 3), (Rain, 1), (Storm, 2)],
             Storm => &[(Rain, 1)],
             Foggy => &[(Clear, 2), (PartlyCloudy, 2), (Overcast, 1)],
+            Snow => &[(Overcast, 3), (Snow, 2)],
         }
     }
 }
@@ -106,7 +116,12 @@ pub struct Weather {
     pub cycle_min_seconds: f32,
     /// Longest time a weather holds before cycling on, in seconds.
     pub cycle_max_seconds: f32,
-    /// Spawn falling rain around the camera when the weather rains.
+    /// Let the cycle reach Snow. Off by default, so a tropical city never
+    /// snows by itself; choosing Snow directly works either way.
+    #[reflect(default)]
+    pub snow_in_cycle: bool,
+    /// Spawn falling rain or snow around the camera when it falls. (The name
+    /// predates snow; it is kept so saved scenes keep their setting.)
     pub rain_particles: bool,
     /// Lightning flashes in a storm.
     pub lightning: bool,
@@ -128,6 +143,7 @@ impl Default for Weather {
             cycle: false,
             cycle_min_seconds: 240.0,
             cycle_max_seconds: 720.0,
+            snow_in_cycle: false,
             rain_particles: true,
             lightning: true,
             intensity: 1.0,
@@ -229,6 +245,12 @@ pub struct WeatherState {
     /// minutes to soak through and longer to dry, so a shower that has just
     /// stopped still leaves them shining.
     pub wetness: f32,
+    /// How hard it is snowing, 0 (none) to 1 (heavy snowfall).
+    pub snow: f32,
+    /// How much snow lies on the ground, 0 to 1. Builds over minutes of
+    /// snowfall and melts more slowly still once it stops, for a material to
+    /// whiten upward-facing surfaces with.
+    pub snow_cover: f32,
     /// This frame's lightning flash, 0 (none) to 1 (the peak of a strike).
     pub lightning: f32,
 }

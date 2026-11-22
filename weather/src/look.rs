@@ -41,6 +41,8 @@ pub struct WeatherLook {
     pub ambient_light: f32,
     /// How hard it rains, 0 to 1.
     pub rain: f32,
+    /// How hard it snows, 0 to 1.
+    pub snow: f32,
     /// How often lightning strikes, 0 (never) to 1 (a full storm).
     pub lightning: f32,
 }
@@ -96,6 +98,7 @@ struct Recipe {
     /// still lit like a clear afternoon.
     ambient_light: f32,
     rain: f32,
+    snow: f32,
     lightning: f32,
 }
 
@@ -129,6 +132,7 @@ fn recipe(preset: WeatherPreset) -> Option<Recipe> {
             gust: 0.5,
             ambient_light: 0.95,
             rain: 0.0,
+            snow: 0.0,
             lightning: 0.0,
         },
         Overcast => Recipe {
@@ -157,6 +161,7 @@ fn recipe(preset: WeatherPreset) -> Option<Recipe> {
             gust: 0.5,
             ambient_light: 0.65,
             rain: 0.0,
+            snow: 0.0,
             lightning: 0.0,
         },
         // Rain and Storm keep some broken cloud (coverage under 1, density
@@ -189,6 +194,7 @@ fn recipe(preset: WeatherPreset) -> Option<Recipe> {
             gust: 0.6,
             ambient_light: 0.45,
             rain: 0.65,
+            snow: 0.0,
             lightning: 0.0,
         },
         Storm => Recipe {
@@ -224,6 +230,7 @@ fn recipe(preset: WeatherPreset) -> Option<Recipe> {
             gust: 0.85,
             ambient_light: 0.3,
             rain: 1.0,
+            snow: 0.0,
             lightning: 1.0,
         },
         Foggy => Recipe {
@@ -252,6 +259,42 @@ fn recipe(preset: WeatherPreset) -> Option<Recipe> {
             gust: 0.15,
             ambient_light: 0.7,
             rain: 0.0,
+            snow: 0.0,
+            lightning: 0.0,
+        },
+        // Snow cloud is bright, not dark: a thin, even, low deck that glows
+        // grey-white, soft-edged and nearly featureless, with cool flat light
+        // under it. Snowfall itself is what closes the distance in, so the
+        // haze thickens much as it does for rain, in a cool grey-white.
+        Snow => Recipe {
+            coverage: 0.95,
+            density: 0.05,
+            bottom: 800.0,
+            top: 3200.0,
+            absorption: 1.1,
+            shadow: Vec3::new(0.62, 0.66, 0.74),
+            cloud_tint: 1.0,
+            cloud_grey: 0.8,
+            brightness: 0.95,
+            ambient: 1.1,
+            edge: 0.3,
+            detail: 0.2,
+            morph: 0.6,
+            drift: 0.7,
+            sun: 0.2,
+            sun_grey: 0.85,
+            disk: 0.0,
+            glare: 0.1,
+            fog: 5.0,
+            fog_grey: 0.9,
+            wind: 0.8,
+            wind_floor: 2.0,
+            gust: 0.3,
+            // Snow light is bright and shadowless: the cloud above and the
+            // white below both bounce it, so the sky's share stays high.
+            ambient_light: 0.85,
+            rain: 0.0,
+            snow: 1.0,
             lightning: 0.0,
         },
     })
@@ -290,6 +333,7 @@ impl WeatherLook {
             wind_gust_strength: b.wind_gust_strength,
             ambient_light: b.env_map_intensity,
             rain: 0.0,
+            snow: 0.0,
             lightning: 0.0,
         }
     }
@@ -341,6 +385,7 @@ impl WeatherLook {
             wind_gust_strength: r.gust,
             ambient_light: b.env_map_intensity * r.ambient_light,
             rain: r.rain,
+            snow: r.snow,
             lightning: r.lightning,
         };
         clear.lerp(&full, intensity).sanitized()
@@ -378,6 +423,7 @@ impl WeatherLook {
             wind_gust_strength: f(self.wind_gust_strength, o.wind_gust_strength),
             ambient_light: f(self.ambient_light, o.ambient_light),
             rain: f(self.rain, o.rain),
+            snow: f(self.snow, o.snow),
             lightning: f(self.lightning, o.lightning),
         }
     }
@@ -413,6 +459,7 @@ impl WeatherLook {
         self.wind_gust_strength = self.wind_gust_strength.clamp(0.0, 1.0);
         self.ambient_light = pos(self.ambient_light);
         self.rain = self.rain.clamp(0.0, 1.0);
+        self.snow = self.snow.clamp(0.0, 1.0);
         self.lightning = self.lightning.clamp(0.0, 1.0);
         self
     }

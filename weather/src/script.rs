@@ -26,7 +26,7 @@ impl ScriptExtension for WeatherScriptExtension {
                 .arg("name", ParamKind::Str)
                 .arg("seconds", ParamKind::Float)
                 .doc(
-                    "Change the weather to clear, partly_cloudy, overcast, rain, storm or foggy, \
+                    "Change the weather to clear, partly_cloudy, overcast, rain, storm, foggy or snow, \
                      blending over the given seconds (a negative number uses the Weather's own \
                      transition time).",
                 )

@@ -94,11 +94,12 @@ fn inspector_entry() -> InspectorEntry {
                 vec![
                     float_field!("Hold Min (s)", cycle_min_seconds, 5.0, 10.0, 7200.0),
                     float_field!("Hold Max (s)", cycle_max_seconds, 5.0, 10.0, 7200.0),
+                    bool_field!("Allow Snow", snow_in_cycle),
                 ],
             ),
             FieldDef::group(
                 "Effects",
-                vec![bool_field!("Rain", rain_particles), bool_field!("Lightning", lightning)],
+                vec![bool_field!("Rain & Snow", rain_particles), bool_field!("Lightning", lightning)],
             ),
         ],
     }
