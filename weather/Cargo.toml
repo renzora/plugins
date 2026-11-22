@@ -11,7 +11,7 @@
 
 [package]
 name = "weather"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Dynamic weather: presets from clear to storm that blend the clouds, sun, haze and wind over time, with rain around the camera and lightning in the clouds."
 
