@@ -1,0 +1,34 @@
+# Native plugin: an ordinary Bevy plugin shipped as source and compiled against
+# the staged SDK on the machine that installs it.
+#
+# Do NOT run `cargo build` here. `plugins/` is outside the engine workspace, so
+# cargo would resolve a SECOND Bevy from crates.io and the plugin that came out
+# would have different `TypeId`s from the engine: it would load, run, and
+# corrupt the World. The path dependency below exists so rust-analyzer can
+# resolve `renzora::` while you author; the real build is the editor's, against
+# `sdk/`.
+[workspace]
+
+[package]
+name = "weather"
+version = "0.1.0"
+edition = "2021"
+description = "Dynamic weather: presets from clear to storm that blend the clouds, sun, haze and wind over time, with rain around the camera and lightning in the clouds."
+
+[lib]
+crate-type = ["dylib"]
+
+[dependencies]
+bevy = "0.20"
+# `editor` for the inspector section. serde comes from the contract crate's
+# re-export, so this plugin declares no third-party crates and builds offline.
+renzora = { path = "../../engine/crates/renzora", features = ["editor"] }
+
+# Marketplace listing (`renzora publish`). Cargo ignores this section.
+[package.metadata.renzora]
+marketplace_id = "weather"
+category = "plugins"
+name = "Dynamic Weather"
+tags = ["rendering", "weather", "sky", "clouds", "rain", "environment"]
+price_credits = 0
+min_engine_version = "r1-alpha8"
