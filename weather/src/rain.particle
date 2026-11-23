@@ -1,8 +1,8 @@
 (
     name: "Weather Rain",
-    capacity: 16384,
+    capacity: 8192,
     spawn_mode: Rate,
-    spawn_rate: 9000.0,
+    spawn_rate: 5000.0,
     spawn_count: 1,
     lifetime_min: 0.9,
     lifetime_max: 1.2,

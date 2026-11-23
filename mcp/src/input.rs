@@ -63,8 +63,8 @@ use bevy::ui::{CalculatedClip, ComputedNode, Pressed, UiGlobalTransform, UiScale
 use bevy::window::{PrimaryWindow, RawCursorMoved, WindowEvent};
 use renzora::serde_json::{json, Value};
 use renzora::HideInHierarchy;
-use renzora_ember::workspace::WorkspaceSwitch;
-use renzora_ember::UiInteraction;
+use renzora::ui::workspace::WorkspaceSwitch;
+use renzora::ui::UiInteraction;
 use std::collections::VecDeque;
 use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
@@ -940,7 +940,7 @@ fn label_of(world: &World, root: Entity) -> String {
     if !text.is_empty() {
         return text;
     }
-    if let Some(tip) = world.get::<renzora_ember::widgets::HoverTooltip>(root) {
+    if let Some(tip) = world.get::<renzora::ui::widgets::HoverTooltip>(root) {
         return tip.0.clone();
     }
     icon.map(|i| format!("[{i}]")).unwrap_or_default()
@@ -1206,8 +1206,8 @@ fn spawn_cursor(commands: &mut Commands) {
 
     // The arrow, twice: a dark copy a pixel down and right as its shadow, so it
     // reads on light panels and dark ones alike.
-    let shadow = renzora_ember::font::glyph(commands, "cursor", (16, 16, 20), 26.0);
-    let arrow = renzora_ember::font::glyph(commands, "cursor", INK, 26.0);
+    let shadow = renzora::ui::font::glyph(commands, "cursor", (16, 16, 20), 26.0);
+    let arrow = renzora::ui::font::glyph(commands, "cursor", INK, 26.0);
     for (glyph, nudge) in [(shadow, 1.5), (arrow, 0.0)] {
         commands.entity(glyph).insert((
             Node {

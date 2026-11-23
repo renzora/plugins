@@ -5,13 +5,13 @@
 # cargo would resolve a SECOND Bevy from crates.io and the plugin that came out
 # would have different `TypeId`s from the engine — it would load, run, and
 # corrupt the World. The path dependencies below exist so rust-analyzer can
-# resolve `renzora::` / `renzora_ember::` while you author; the real build is
+# resolve `renzora::` (UI included, as `renzora::ui::`) while you author; the real build is
 # `cargo renzora`.
 [workspace]
 
 [package]
 name = "gamepad"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 description = "Live gamepad diagnostics — sticks, triggers and buttons per connected pad."
 
@@ -20,8 +20,7 @@ crate-type = ["dylib"]
 
 [dependencies]
 bevy = "0.19"
-renzora = { path = "../../crates/renzora" }
-renzora_ember = { path = "../../crates/renzora_ember" }
+renzora = { path = "../../engine/crates/shared/renzora_sdk", package = "renzora_sdk", features = ["ui"] }
 
 # Nothing third-party, so cargo is never invoked and the build stays offline.
 

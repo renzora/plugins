@@ -47,6 +47,31 @@ pub struct WeatherLook {
     pub lightning: f32,
 }
 
+/// The user's adjustments to every preset: how much haze, rain and snow it
+/// brings, as multiples of what it is tuned to.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Tuning {
+    pub fog: f32,
+    pub rain: f32,
+    pub snow: f32,
+}
+
+impl Default for Tuning {
+    fn default() -> Self {
+        Self { fog: 1.0, rain: 1.0, snow: 1.0 }
+    }
+}
+
+impl Tuning {
+    pub fn of(w: &crate::data::Weather) -> Self {
+        Self {
+            fog: w.fog_amount.clamp(0.0, 3.0),
+            rain: w.rain_amount.clamp(0.0, 2.0),
+            snow: w.snow_amount.clamp(0.0, 2.0),
+        }
+    }
+}
+
 fn v(a: [f32; 3]) -> Vec3 {
     Vec3::from_array(a)
 }
@@ -340,11 +365,16 @@ impl WeatherLook {
 
     /// `preset` built over the scene's own look, scaled by `intensity` (1 is
     /// the preset as tuned, 0 is the scene unchanged).
-    pub fn for_preset(preset: WeatherPreset, b: &WeatherBase, intensity: f32) -> Self {
+    pub fn for_preset(preset: WeatherPreset, b: &WeatherBase, intensity: f32, tuning: Tuning) -> Self {
         let clear = Self::from_base(b);
-        let Some(r) = recipe(preset) else {
+        let Some(mut r) = recipe(preset) else {
             return clear;
         };
+        // The fog amount scales what the preset adds on top of the scene's own
+        // haze, never the scene's haze itself: 0 leaves the authored air.
+        r.fog = 1.0 + (r.fog - 1.0) * tuning.fog;
+        r.rain *= tuning.rain;
+        r.snow *= tuning.snow;
         // The scene's haze, or a city's worth of air if it has none, so a
         // preset has something to thicken.
         let (ext, ins) = if b.fog_enabled && b.fog_mode == 3 {
@@ -458,8 +488,9 @@ impl WeatherLook {
         self.wind_speed = pos(self.wind_speed);
         self.wind_gust_strength = self.wind_gust_strength.clamp(0.0, 1.0);
         self.ambient_light = pos(self.ambient_light);
-        self.rain = self.rain.clamp(0.0, 1.0);
-        self.snow = self.snow.clamp(0.0, 1.0);
+        // Up to 2: the rain and snow amounts can double a preset's own.
+        self.rain = self.rain.clamp(0.0, 2.0);
+        self.snow = self.snow.clamp(0.0, 2.0);
         self.lightning = self.lightning.clamp(0.0, 1.0);
         self
     }
@@ -528,7 +559,7 @@ pub fn apply_sun(look: &WeatherLook, base: &WeatherBase, flash: f32, s: &mut Sun
     // A strike lights the ground a little: enough to read as a flash without
     // the shadows betraying that it comes from the sun.
     s.illuminance = look.sun_illuminance + flash * base.sun_illuminance * 0.35;
-    s.color = look.sun_color.lerp(Vec3::new(0.85, 0.9, 1.0), flash);
+    s.color = look.sun_color.lerp(Vec3::new(0.85, 0.9, 1.0), flash.min(1.0));
     s.sun_disk_intensity = look.sun_disk_intensity;
     s.glare_intensity = look.sun_glare;
 }

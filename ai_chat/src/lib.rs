@@ -28,15 +28,15 @@ use std::sync::Mutex;
 use bevy::prelude::*;
 
 use renzora::core::RenzoraShellExt;
-use renzora_ember::font::{icon_text, ui_font, EmberFonts};
-use renzora_ember::panel::RegisterPanelContent;
-use renzora_ember::UiInteraction;
-use renzora_ember::reactive::{KeyedSnapshot};
-use renzora_ember::reactive::Rx;
-use renzora_ember::reactive::tracked::{bind_2way, bind_bg, bind_display, bind_text, keyed_list};
-use renzora_ember::settings_sections::RegisterSettingsSection;
-use renzora_ember::theme::{accent, rgb, tab_active, text_muted, text_primary};
-use renzora_ember::widgets::{
+use renzora::ui::font::{icon_text, ui_font, EmberFonts};
+use renzora::ui::panel::RegisterPanelContent;
+use renzora::ui::UiInteraction;
+use renzora::ui::reactive::{KeyedSnapshot};
+use renzora::ui::reactive::Rx;
+use renzora::ui::reactive::tracked::{bind_2way, bind_bg, bind_display, bind_text, keyed_list};
+use renzora::ui::settings_sections::RegisterSettingsSection;
+use renzora::ui::theme::{accent, rgb, tab_active, text_muted, text_primary};
+use renzora::ui::widgets::{
     bind_text_input, button, dropdown, markdown_view, password_input, scroll_view_pinned,
     spinner, text_input, EmberTextInput,
 };
@@ -512,7 +512,7 @@ fn build_panel(commands: &mut Commands, fonts: &EmberFonts) -> Entity {
             },
             BackgroundColor(rgb(tab_active())),
             UiInteraction::default(),
-            renzora_ember::cursor_icon::HoverCursor(bevy::window::SystemCursorIcon::Pointer),
+            renzora::ui::cursor_icon::HoverCursor(bevy::window::SystemCursorIcon::Pointer),
             SendBtn,
             Name::new("send-stop"),
         ))
@@ -550,7 +550,7 @@ fn build_panel(commands: &mut Commands, fonts: &EmberFonts) -> Entity {
             ..default()
         })
         .id();
-    renzora_ember::virtual_scroll::virtual_scroll(commands, messages, 6, message_snapshot);
+    renzora::ui::virtual_scroll::virtual_scroll(commands, messages, 6, message_snapshot);
     // The thinking bubble sits after the list rows: the keyed list inserts
     // its rows at index 0, so this extra child stays last.
     let thinking = thinking_bubble(commands, fonts);

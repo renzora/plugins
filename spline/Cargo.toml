@@ -19,7 +19,7 @@ crate-type = ["dylib"]
 
 [dependencies]
 bevy = "0.19"
-renzora = { path = "../../crates/renzora" }
+renzora = { path = "../../engine/crates/shared/renzora_sdk", package = "renzora_sdk" }
 
 # No `serde`: `renzora::serde` is the engine's copy, and a private one would be a
 # different crate from the one `Vec3` implements the traits for. With nothing for

@@ -6,18 +6,18 @@
 
 use bevy::prelude::*;
 
-use renzora_ember::font::{icon_text, ui_font, EmberFonts};
-use renzora_ember::interaction::PASS_THROUGH;
-use renzora_ember::reactive::tracked::{
+use renzora::ui::font::{icon_text, ui_font, EmberFonts};
+use renzora::ui::interaction::PASS_THROUGH;
+use renzora::ui::reactive::tracked::{
     bind_2way, bind_bg, bind_display, bind_text, bind_text_color, bind_with, keyed_list,
 };
-use renzora_ember::reactive::{KeyedSnapshot, Rx};
-use renzora_ember::theme::*;
-use renzora_ember::widgets::{
+use renzora::ui::reactive::{KeyedSnapshot, Rx};
+use renzora::ui::theme::*;
+use renzora::ui::widgets::{
     bind_text_input, button, dropdown, icon_button, segmented, text_input, textarea, toggle_switch,
     WebImages,
 };
-use renzora_ember::UiInteraction;
+use renzora::ui::UiInteraction;
 
 use crate::job::{Hub, Mode};
 use crate::providers::Provider;
@@ -264,7 +264,7 @@ fn action_row(commands: &mut Commands, fonts: &EmberFonts) -> Entity {
             },
             BackgroundColor(rgb(accent())),
             UiInteraction::default(),
-            renzora_ember::cursor_icon::HoverCursor(bevy::window::SystemCursorIcon::Pointer),
+            renzora::ui::cursor_icon::HoverCursor(bevy::window::SystemCursorIcon::Pointer),
             GenerateButton,
             Name::new("ai-mesh-generate"),
         ))

@@ -477,7 +477,7 @@ impl Plugin for WindPlugin {
 
     fn finish(&self, app: &mut App) {
         // `renzora::script_extension`, not `renzora_scripting`: a plugin reaches
-        // `bevy`, `renzora` and `renzora_ember` and nothing else. The vocabulary
+        // `bevy`, `renzora` and `renzora::ui` and nothing else. The vocabulary
         // lives in the contract crate for exactly this reason.
         let mut extensions = app
             .world_mut()

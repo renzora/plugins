@@ -11,7 +11,7 @@
 
 [package]
 name = "weather"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Dynamic weather: presets from clear to storm and snow that blend the clouds, sun, haze and wind over time, with rain and snow around the camera and lightning in the clouds."
 
@@ -22,7 +22,9 @@ crate-type = ["dylib"]
 bevy = "0.20"
 # `editor` for the inspector section. serde comes from the contract crate's
 # re-export, so this plugin declares no third-party crates and builds offline.
-renzora = { path = "../../engine/crates/renzora", features = ["editor"] }
+renzora = { path = "../../engine/crates/shared/renzora_sdk", package = "renzora_sdk", features = ["editor", "ui"] }
+# The Inspector section, which shows only the settings for the weather that is
+# happening, so it is drawn with the editor's own widgets.
 
 # Marketplace listing (`renzora publish`). Cargo ignores this section.
 [package.metadata.renzora]

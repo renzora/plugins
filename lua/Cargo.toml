@@ -41,11 +41,11 @@ crate-type = ["dylib"]
 bevy = "0.19"
 # The shared types a backend deals in: `ScriptCommand`, `DrawCmd`, `Binding` and
 # the declarative extension registry a backend builds its API from.
-renzora = { path = "../../engine/crates/renzora" }
+renzora = { path = "../../engine/crates/shared/renzora_sdk", package = "renzora_sdk" }
 # `renzora` alone. The `ScriptBackend` trait, the context and variable types its
 # hooks take, and `get_handler` all live in the contract crate, which is what
 # makes a language implementable by an installed plugin at all: the staged SDK
-# offers `bevy`, `renzora` and `renzora_ember`, and nothing else. The scripting
+# offers `bevy` and `renzora` (UI included, as `renzora::ui`), and nothing else. The scripting
 # system itself (`renzora_scripting`) is not linked here and does not need to be.
 
 # Vendored so the plugin builds with nothing but a C compiler — no system Lua,

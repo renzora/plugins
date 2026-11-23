@@ -5,7 +5,7 @@
 
 [package]
 name = "tracy"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "Stream the engine's diagnostics to a running Tracy profiler."
 
@@ -39,8 +39,7 @@ bevy = "0.19"
 # both behind it. These paths are read by rust-analyzer and by Bevy's derive
 # macros only: the plugin is compiled by `rustc` against the staged SDK, which
 # supplies the real `--extern` edges.
-renzora = { path = "../../engine/crates/renzora", features = ["editor"] }
-renzora_ember = { path = "../../engine/crates/renzora_ember" }
+renzora = { path = "../../engine/crates/shared/renzora_sdk", package = "renzora_sdk", features = ["editor", "ui"] }
 # The Tracy protocol client. NOT `no_std`: this opens a socket and spawns Tracy's
 # own worker thread, so std is not optional here the way it is for a
 # post-process effect.

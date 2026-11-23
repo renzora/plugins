@@ -38,10 +38,10 @@ use std::collections::HashSet;
 use bevy::prelude::*;
 
 use renzora::RenzoraShellExt;
-use renzora_ember::font::EmberFonts;
-use renzora_ember::UiInteraction;
-use renzora_ember::panel::RegisterPanelContent;
-use renzora_ember::widgets::{EmberTextInput, FolderPick, WebImages};
+use renzora::ui::font::EmberFonts;
+use renzora::ui::UiInteraction;
+use renzora::ui::panel::RegisterPanelContent;
+use renzora::ui::widgets::{EmberTextInput, FolderPick, WebImages};
 
 use api::Kind;
 use hub::{Catalogue, Hub, Job};

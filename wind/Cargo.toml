@@ -10,7 +10,7 @@
 
 [package]
 name = "wind"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Global wind with per-mesh sway. A vertex-displacing material bends foliage and cloth-like geometry, driven by one WorldEnvironment wind state that scripts can also read and set."
 
@@ -19,7 +19,7 @@ crate-type = ["dylib"]
 
 [dependencies]
 bevy = "0.19"
-renzora = { path = "../../engine/crates/renzora" }
+renzora = { path = "../../engine/crates/shared/renzora_sdk", package = "renzora_sdk", features = ["ui"] }
 
 # No third-party dependencies, so cargo is never invoked and the build is one
 # `rustc`. The script bindings come from `renzora::script_extension`, which is

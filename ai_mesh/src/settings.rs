@@ -16,9 +16,9 @@
 use bevy::prelude::*;
 
 use renzora::serde::{Deserialize, Serialize};
-use renzora_ember::font::{ui_font, EmberFonts};
-use renzora_ember::theme::{rgb, text_muted};
-use renzora_ember::widgets::{bind_text_input, password_input, text_input};
+use renzora::ui::font::{ui_font, EmberFonts};
+use renzora::ui::theme::{rgb, text_muted};
+use renzora::ui::widgets::{bind_text_input, password_input, text_input};
 
 use crate::providers::{KeySlot, Provider};
 

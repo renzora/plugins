@@ -430,8 +430,8 @@ type SceneEntity = (
     Without<bevy::input::gamepad::Gamepad>,
     Or<(
         Without<bevy::ui::Node>,
-        With<renzora_ember::game_ui::UiCanvas>,
-        With<renzora_ember::game_ui::UiWidget>,
+        With<renzora::ui::game_ui::UiCanvas>,
+        With<renzora::ui::game_ui::UiWidget>,
     )>,
 );
 

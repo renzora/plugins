@@ -120,11 +120,42 @@ pub struct Weather {
     /// snows by itself; choosing Snow directly works either way.
     #[reflect(default)]
     pub snow_in_cycle: bool,
-    /// Spawn falling rain or snow around the camera when it falls. (The name
-    /// predates snow; it is kept so saved scenes keep their setting.)
+    /// Draw falling rain around the camera when it rains.
     pub rain_particles: bool,
+    /// How hard it rains, as a multiple of the preset's own rain, 0 to 2. More
+    /// rain draws more drops and soaks the streets faster.
+    #[reflect(default = "one")]
+    pub rain_amount: f32,
+    /// Draw falling snow around the camera when it snows.
+    #[reflect(default = "yes")]
+    pub snow_particles: bool,
+    /// How hard it snows, as a multiple of the preset's own snow, 0 to 2. More
+    /// snow draws more flakes and covers the ground faster.
+    #[reflect(default = "one")]
+    pub snow_amount: f32,
+    /// Seconds of steady snowfall to cover the ground completely.
+    #[reflect(default = "cover_seconds")]
+    pub snow_cover_seconds: f32,
+    /// Seconds for a full cover to melt once the snow stops. Rain melts it
+    /// four times as fast: a storm rolling in washes the streets clear.
+    #[reflect(default = "melt_seconds")]
+    pub snow_melt_seconds: f32,
     /// Lightning flashes in a storm.
     pub lightning: bool,
+    /// Draw the bolt itself, branching down from the cloud, as well as the
+    /// flash it lights the world with.
+    #[reflect(default = "yes")]
+    pub lightning_bolts: bool,
+    /// How often lightning strikes, as a multiple of the storm's own rate.
+    #[reflect(default = "one")]
+    pub lightning_frequency: f32,
+    /// How brightly a strike lights the clouds, the city and the bolt.
+    #[reflect(default = "one")]
+    pub lightning_brightness: f32,
+    /// How much a preset thickens the haze, as a multiple of what it is tuned
+    /// to add, 0 to 3. 0 keeps the scene's own haze whatever the weather.
+    #[reflect(default = "one")]
+    pub fog_amount: f32,
     /// Multiplies how strongly each preset darkens, fogs and blows, 0 to 2.
     /// 1 is the presets as tuned; below that for a gentler climate.
     pub intensity: f32,
@@ -145,11 +176,35 @@ impl Default for Weather {
             cycle_max_seconds: 720.0,
             snow_in_cycle: false,
             rain_particles: true,
+            rain_amount: 1.0,
+            snow_particles: true,
+            snow_amount: 1.0,
+            snow_cover_seconds: cover_seconds(),
+            snow_melt_seconds: melt_seconds(),
             lightning: true,
+            lightning_bolts: true,
+            lightning_frequency: 1.0,
+            lightning_brightness: 1.0,
+            fog_amount: 1.0,
             intensity: 1.0,
             base: None,
         }
     }
+}
+
+// What a field added after scenes were saved reads as in one saved before it,
+// when the scene is loaded by reflection (serde uses `Default` above).
+fn one() -> f32 {
+    1.0
+}
+fn yes() -> bool {
+    true
+}
+fn cover_seconds() -> f32 {
+    150.0
+}
+fn melt_seconds() -> f32 {
+    120.0
 }
 
 /// Everything weather overwrites, as the scene had it before weather began.
@@ -239,13 +294,15 @@ impl Default for WeatherBase {
 pub struct WeatherState {
     /// How much of the sky is cloud, 0 (clear) to 1 (solid overcast).
     pub cloudiness: f32,
-    /// How hard it is raining, 0 (dry) to 1 (downpour).
+    /// How hard it is raining: 0 dry, 1 a downpour, up to 2 with Rain Amount
+    /// turned up.
     pub rain: f32,
     /// How wet the ground is, 0 to 1. Lags `rain` on purpose: streets take
     /// minutes to soak through and longer to dry, so a shower that has just
     /// stopped still leaves them shining.
     pub wetness: f32,
-    /// How hard it is snowing, 0 (none) to 1 (heavy snowfall).
+    /// How hard it is snowing: 0 none, 1 heavy snowfall, up to 2 with Snow
+    /// Amount turned up.
     pub snow: f32,
     /// How much snow lies on the ground, 0 to 1. Builds over minutes of
     /// snowfall and melts more slowly still once it stops, for a material to

@@ -5,13 +5,13 @@
 # cargo would resolve a SECOND Bevy from crates.io and the plugin that came out
 # would have different `TypeId`s from the engine: it would load, run, and
 # corrupt the World. The path dependencies below exist so rust-analyzer can
-# resolve `renzora::` and `renzora_ember::` while you author; the real build is
+# resolve `renzora::` (UI included, as `renzora::ui::`) while you author; the real build is
 # the editor's, against `sdk/`.
 [workspace]
 
 [package]
 name = "ai_mesh"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Generate textured 3D models from a prompt or an image with Meshy, Tripo, fal.ai or a local Hunyuan3D server, imported straight into the project."
 
@@ -23,9 +23,8 @@ bevy = "0.20"
 # `editor` for `RenzoraShellExt::register_shell_panel` and `CurrentProject`.
 # HTTP is `renzora::net`, and serde/serde_json come from the contract crate's
 # re-exports, so this plugin's JSON is the engine's JSON.
-renzora = { path = "../../engine/crates/renzora", features = ["editor"] }
+renzora = { path = "../../engine/crates/shared/renzora_sdk", package = "renzora_sdk", features = ["editor", "ui"] }
 # The panel, the settings section, and `WebImages` for result thumbnails.
-renzora_ember = { path = "../../engine/crates/renzora_ember" }
 
 # The native file dialog behind "Choose image...". The one thing cargo has to
 # resolve for this plugin, so the first build needs a network.

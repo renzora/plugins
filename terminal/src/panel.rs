@@ -31,11 +31,11 @@ use bevy::prelude::*;
 use bevy::text::{TextBackgroundColor, TextLayoutInfo, Underline};
 use bevy::ui::ComputedNode;
 
-use renzora_ember::font::{ui_font, EmberFonts};
-use renzora_ember::interaction::{BLOCK, PASS_THROUGH};
-use renzora_ember::{UiCursor, UiInteraction};
-use renzora_ember::theme::{border, panel_bg, rgb, selection, text_muted, text_primary};
-use renzora_ember::widgets::clipboard;
+use renzora::ui::font::{ui_font, EmberFonts};
+use renzora::ui::interaction::{BLOCK, PASS_THROUGH};
+use renzora::ui::{UiCursor, UiInteraction};
+use renzora::ui::theme::{border, panel_bg, rgb, selection, text_muted, text_primary};
+use renzora::ui::widgets::clipboard;
 
 use crate::grid::{self, RowOverlay};
 use crate::keys::{self, Mods};

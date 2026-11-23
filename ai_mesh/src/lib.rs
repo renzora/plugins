@@ -33,9 +33,9 @@ mod settings;
 use bevy::prelude::*;
 
 use renzora::RenzoraShellExt;
-use renzora_ember::panel::RegisterPanelContent;
-use renzora_ember::settings_sections::RegisterSettingsSection;
-use renzora_ember::UiInteraction;
+use renzora::ui::panel::RegisterPanelContent;
+use renzora::ui::settings_sections::RegisterSettingsSection;
+use renzora::ui::UiInteraction;
 
 use job::{Hub, Mode};
 use providers::{Input, Spec};

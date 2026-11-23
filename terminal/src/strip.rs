@@ -32,15 +32,15 @@ use bevy::prelude::*;
 use bevy::ui::{ComputedNode, ScrollPosition, UiGlobalTransform};
 use bevy::window::PrimaryWindow;
 
-use renzora_ember::font::{glyph, ui_font, EmberFonts};
-use renzora_ember::interaction::{BLOCK, PASS_THROUGH};
-use renzora_ember::{UiCursor, UiInteraction};
-use renzora_ember::theme::{
+use renzora::ui::font::{glyph, ui_font, EmberFonts};
+use renzora::ui::interaction::{BLOCK, PASS_THROUGH};
+use renzora::ui::{UiCursor, UiInteraction};
+use renzora::ui::theme::{
     accent, divider, hover_bg, panel_bg, rgb, tab_active, tab_hover, text_muted, text_primary,
 };
 // The popup module is private; `widgets` glob-re-exports its public surface, so
 // these come from the crate root rather than from `widgets::popup`.
-use renzora_ember::widgets::{
+use renzora::ui::widgets::{
     menu_item, screen_menu_est_height, screen_menu_flip, screen_menu_under, scroll_view,
     text_input, trigger_rect, EmberScroll, EmberTextInput,
 };

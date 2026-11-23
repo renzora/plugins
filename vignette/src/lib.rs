@@ -129,7 +129,7 @@ fn inspector_entry() -> InspectorEntry {
         type_id: "vignette",
         display_name: "Vignette",
         icon: "aperture",
-        category: "effects",
+        category: "post_process",
         has_fn: |world, entity| world.get::<VignetteSettings>(entity).is_some(),
         add_fn: Some(|world, entity| {
             world.entity_mut(entity).insert(VignetteSettings::default());

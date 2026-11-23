@@ -17,7 +17,7 @@ use bevy::diagnostic::{
 use bevy::prelude::*;
 
 use renzora::probes::probe_watched;
-use renzora_ember::reactive::Rx;
+use renzora::ui::reactive::Rx;
 
 use state::*;
 
@@ -156,7 +156,7 @@ impl Plugin for DebuggerPlugin {
         // resource from disk (the throttled stat systems above + the system
         // monitor read it live); the settings section below persists edits.
         app.insert_resource(renzora::load_stats_refresh());
-        use renzora_ember::settings_sections::RegisterSettingsSection;
+        use renzora::ui::settings_sections::RegisterSettingsSection;
         app.register_settings_section(
             "stats_refresh",
             "Status Bar",
@@ -176,7 +176,7 @@ impl Plugin for DebuggerPlugin {
 /// two-way to [`renzora::StatsRefreshSettings`] and persisted on change.
 fn build_stats_refresh_section(
     commands: &mut Commands,
-    fonts: &renzora_ember::font::EmberFonts,
+    fonts: &renzora::ui::font::EmberFonts,
 ) -> Entity {
     let col = commands
         .spawn(Node {
@@ -303,14 +303,14 @@ fn commit_toggle(
 /// A small muted group heading between control clusters.
 fn group_label(
     commands: &mut Commands,
-    fonts: &renzora_ember::font::EmberFonts,
+    fonts: &renzora::ui::font::EmberFonts,
     text: &str,
 ) -> Entity {
     commands
         .spawn((
             Text::new(text),
-            renzora_ember::font::ui_font(&fonts.ui, 10.0),
-            TextColor(renzora_ember::theme::rgb(renzora_ember::theme::text_muted())),
+            renzora::ui::font::ui_font(&fonts.ui, 10.0),
+            TextColor(renzora::ui::theme::rgb(renzora::ui::theme::text_muted())),
             Node {
                 margin: UiRect::top(Val::Px(4.0)),
                 ..default()
@@ -322,7 +322,7 @@ fn group_label(
 /// One labelled row with a toggle switch bound two-way to a status-bar flag.
 fn toggle_row<G, S>(
     commands: &mut Commands,
-    fonts: &renzora_ember::font::EmberFonts,
+    fonts: &renzora::ui::font::EmberFonts,
     label: &str,
     get: G,
     set: S,
@@ -344,12 +344,12 @@ where
     let lbl = commands
         .spawn((
             Text::new(label),
-            renzora_ember::font::ui_font(&fonts.ui, 13.0),
-            TextColor(renzora_ember::theme::rgb(renzora_ember::theme::text_primary())),
+            renzora::ui::font::ui_font(&fonts.ui, 13.0),
+            TextColor(renzora::ui::theme::rgb(renzora::ui::theme::text_primary())),
         ))
         .id();
-    let sw = renzora_ember::widgets::toggle_switch(commands, true);
-    renzora_ember::reactive::tracked::bind_2way(commands, sw, get, set);
+    let sw = renzora::ui::widgets::toggle_switch(commands, true);
+    renzora::ui::reactive::tracked::bind_2way(commands, sw, get, set);
     commands.entity(row).add_children(&[lbl, sw]);
     row
 }
@@ -386,7 +386,7 @@ fn commit_refresh(
 #[allow(clippy::too_many_arguments)]
 fn refresh_row<G, S>(
     commands: &mut Commands,
-    fonts: &renzora_ember::font::EmberFonts,
+    fonts: &renzora::ui::font::EmberFonts,
     label: &str,
     min: f32,
     max: f32,
@@ -411,23 +411,23 @@ where
     let lbl = commands
         .spawn((
             Text::new(label),
-            renzora_ember::font::ui_font(&fonts.ui, 13.0),
-            TextColor(renzora_ember::theme::rgb(renzora_ember::theme::text_primary())),
+            renzora::ui::font::ui_font(&fonts.ui, 13.0),
+            TextColor(renzora::ui::theme::rgb(renzora::ui::theme::text_primary())),
         ))
         .id();
     // `get` syncs the real value on the first frame, so a placeholder init is fine.
-    let dv = renzora_ember::widgets::drag_value(
+    let dv = renzora::ui::widgets::drag_value(
         commands,
         &fonts.ui,
         "ms",
-        renzora_ember::theme::value_text(),
+        renzora::ui::theme::value_text(),
         min,
         step,
     );
     commands
         .entity(dv)
-        .insert(renzora_ember::widgets::DragRange { min, max });
-    renzora_ember::reactive::tracked::bind_2way(commands, dv, get, set);
+        .insert(renzora::ui::widgets::DragRange { min, max });
+    renzora::ui::reactive::tracked::bind_2way(commands, dv, get, set);
     commands.entity(row).add_children(&[lbl, dv]);
     row
 }

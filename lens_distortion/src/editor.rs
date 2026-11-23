@@ -37,7 +37,7 @@ fn lens_distortion_entry() -> InspectorEntry {
         type_id: "lens_distortion",
         display_name: "Lens Distortion",
         icon: "circle",
-        category: "effects",
+        category: "post_process",
         has_fn: |world, entity| world.get::<LensDistortionSettings>(entity).is_some(),
         add_fn: Some(|world, entity| {
             world

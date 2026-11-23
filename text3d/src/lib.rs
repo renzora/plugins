@@ -21,7 +21,7 @@
 //!
 //! A native plugin can, because it links the real Bevy. So this is the union of
 //! the two, and both predecessors are gone. Its one requirement was that
-//! `SdfTextMaterial` be a single type shared with `renzora_ember`'s world-space
+//! `SdfTextMaterial` be a single type shared with `renzora::ui`'s world-space
 //! UI emitter, which is why the glyph machinery moved into the contract crate as
 //! [`renzora::text_mesh`] — see that module's doc.
 

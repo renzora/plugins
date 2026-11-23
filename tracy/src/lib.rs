@@ -64,12 +64,12 @@ use std::collections::HashMap;
 
 use bevy::diagnostic::DiagnosticsStore;
 use bevy::prelude::*;
-use renzora_ember::font::{ui_font, EmberFonts};
-use renzora_ember::reactive::tracked::{bind_2way, bind_text, bind_text_color};
-use renzora_ember::reactive::Rx;
-use renzora_ember::settings_sections::RegisterSettingsSection;
-use renzora_ember::theme::*;
-use renzora_ember::widgets::toggle_switch;
+use renzora::ui::font::{ui_font, EmberFonts};
+use renzora::ui::reactive::tracked::{bind_2way, bind_text, bind_text_color};
+use renzora::ui::reactive::Rx;
+use renzora::ui::settings_sections::RegisterSettingsSection;
+use renzora::ui::theme::*;
+use renzora::ui::widgets::toggle_switch;
 use tracy_client::{Client, PlotName};
 
 /// A group of diagnostics the user can turn off as a unit.

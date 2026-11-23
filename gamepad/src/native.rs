@@ -17,12 +17,12 @@ use bevy::shader::ShaderRef;
 use bevy::ui_render::prelude::{MaterialNode, UiMaterial};
 use bevy::ui_render::UiMaterialPlugin;
 
-use renzora_ember::font::{ui_font, EmberFonts};
-use renzora_ember::panel::RegisterPanelContent;
-use renzora_ember::reactive::{KeyedSnapshot};
-use renzora_ember::reactive::Rx;
-use renzora_ember::reactive::tracked::{bind_text, bind_with, keyed_list};
-use renzora_ember::theme::rgb;
+use renzora::ui::font::{ui_font, EmberFonts};
+use renzora::ui::panel::RegisterPanelContent;
+use renzora::ui::reactive::{KeyedSnapshot};
+use renzora::ui::reactive::Rx;
+use renzora::ui::reactive::tracked::{bind_text, bind_with, keyed_list};
+use renzora::ui::theme::rgb;
 
 use crate::state::{GamepadButtonState, GamepadDebugState};
 

@@ -16,7 +16,7 @@ use bevy::prelude::*;
 
 use renzora::lang::t;
 use renzora::probes::{ProbeDef, ProbeItem, ProbeLevel, ProbeReport};
-use renzora_ember::reactive::{BindingReport, ReactiveStats};
+use renzora::ui::reactive::{BindingReport, ReactiveStats};
 
 /// How many keyed lists the panel listed; the report keeps the same cap so a
 /// UI with hundreds of lists does not make the report itself heavy.

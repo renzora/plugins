@@ -55,27 +55,58 @@ fn octahedral_encode(v: vec3<f32>) -> vec2<f32> {
     return n_xy * 0.5 + 0.5;
 }
 
-fn hash(p: vec2<f32>) -> f32 {
-    let q = fract(p * vec2(123.34, 456.21));
-    let r = q + dot(q, q + 45.32);
-    return fract(r.x * r.y);
+// A cell's random gradient, hashed from its integer coordinates (PCG).
+// Integers rather than the usual `fract(sin(...))` on positions: that loses
+// precision tens of kilometres from the origin, where a city's streets are,
+// and the drifts there broke up into square blocks.
+fn gradient(cell: vec2<i32>) -> vec2<f32> {
+    var h = bitcast<u32>(cell.x) * 747796405u + bitcast<u32>(cell.y) * 2891336453u + 1013904223u;
+    h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
+    h = (h >> 22u) ^ h;
+    let angle = f32(h) * (6.2831853 / 4294967296.0);
+    return vec2(cos(angle), sin(angle));
 }
 
-fn value_noise(p: vec2<f32>) -> f32 {
-    let i = floor(p);
-    let f = fract(p);
-    let u = f * f * (3.0 - 2.0 * f);
-    let a = hash(i);
-    let b = hash(i + vec2(1.0, 0.0));
-    let c = hash(i + vec2(0.0, 1.0));
-    let d = hash(i + vec2(1.0, 1.0));
-    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+// Gradient noise, -1..1. Smoother than value noise, whose bilinear blend
+// between random corner values draws visibly square blobs.
+fn gradient_noise(p: vec2<f32>) -> f32 {
+    let cell = floor(p);
+    let f = p - cell;
+    let c = vec2<i32>(cell);
+    // Quintic fade: no crease at the cell edges, where the cubic one leaves a
+    // faint grid in the shading.
+    let u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    let a = dot(gradient(c), f);
+    let b = dot(gradient(c + vec2(1, 0)), f - vec2(1.0, 0.0));
+    let d = dot(gradient(c + vec2(0, 1)), f - vec2(0.0, 1.0));
+    let e = dot(gradient(c + vec2(1, 1)), f - vec2(1.0, 1.0));
+    return mix(mix(a, b, u.x), mix(d, e, u.x), u.y) * 1.4;
 }
 
-// Patches a few metres across with finer breakup inside them, so a dusting
-// gathers in drifts rather than tinting everything evenly.
-fn drift(p: vec2<f32>) -> f32 {
-    return value_noise(p * 0.18) * 0.55 + value_noise(p * 0.9) * 0.3 + value_noise(p * 4.0) * 0.15;
+// Each finer octave turned by about 37 degrees, so no layer lines up with
+// the world axes or with the one under it.
+const OCTAVE_TURN: mat2x2<f32> = mat2x2<f32>(0.8, 0.6, -0.6, 0.8);
+
+// Drifts a few metres across with finer breakup inside them, 0..1, so a
+// dusting gathers in patches rather than tinting everything evenly. The
+// sample point is warped by a broad noise first, which bends the drift edges
+// into organic shapes instead of round blobs on a lattice.
+fn drift(world_xz: vec2<f32>) -> f32 {
+    // Keep the coordinates small before scaling: the pattern repeats every
+    // 4096 m, far beyond what is ever seen at once.
+    let p0 = world_xz - floor(world_xz / 4096.0) * 4096.0;
+    let warp = vec2(gradient_noise(p0 * 0.02), gradient_noise(p0 * 0.02 + vec2(17.3, -9.1))) * 8.0;
+    // Drifts about 15 m across, with two gentler layers of detail on their
+    // edges. Finer, stronger layers turned every edge into scratchy hair.
+    var p = (p0 + warp) * 0.065;
+    var sum = 0.0;
+    var amplitude = 0.6;
+    for (var i = 0; i < 3; i++) {
+        sum += gradient_noise(p) * amplitude;
+        p = OCTAVE_TURN * p * 2.2 + vec2(5.2, 1.3);
+        amplitude *= 0.4;
+    }
+    return saturate(sum * 0.8 + 0.5);
 }
 
 @fragment
@@ -103,9 +134,12 @@ fn apply(in: FullscreenOutput) -> @location(0) vec4<u32> {
     // How much the surface faces the sky: none on walls, all on flat tops.
     let facing = smoothstep(0.35, 0.85, n.y);
     // Flat, exposed spots fill first; a full cover reaches the gentler slopes.
-    let exposure = facing * (0.55 + 0.45 * drift(world.xz));
+    // The drift spreads flat ground across most of the cover range, so the
+    // snow arrives and melts as growing and shrinking drifts rather than
+    // flat ground going white all at once.
+    let exposure = facing * (0.3 + 0.7 * drift(world.xz));
     let threshold = 1.0 - cover;
-    let amount = smoothstep(threshold, threshold + 0.18, exposure) * step(0.001, cover);
+    let amount = smoothstep(threshold, threshold + 0.22, exposure) * step(0.001, cover);
     if amount <= 0.0 {
         return g;
     }

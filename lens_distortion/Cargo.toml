@@ -10,7 +10,7 @@
 
 [package]
 name = "lens_distortion"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Barrel and pincushion lens distortion, authored on the World Environment and routed onto cameras. Wraps Bevy's built-in LensDistortion effect."
 
@@ -19,7 +19,7 @@ crate-type = ["dylib"]
 
 [dependencies]
 bevy = "0.19"
-renzora = { path = "../../engine/crates/renzora" }
+renzora = { path = "../../engine/crates/shared/renzora_sdk", package = "renzora_sdk" }
 
 # No `serde` entry. `LensDistortionSettings` is authored in scenes and needs the
 # derives, but it takes them from `renzora::serde` — the engine's own copy. A

@@ -23,6 +23,7 @@
 
 use bevy::prelude::*;
 
+pub mod bolt;
 pub mod clouds;
 pub mod data;
 pub mod look;
@@ -66,12 +67,15 @@ impl Plugin for WeatherPlugin {
         bevy::asset::embedded_asset!(app, "snow.particle");
         snow_cover::build(app);
         app.add_observer(systems::restore_on_remove)
-            .add_systems(Update, (systems::drive_weather, precipitation::follow_precipitation).chain());
+            .add_systems(
+                Update,
+                (systems::drive_weather, precipitation::follow_precipitation, bolt::fade_bolts).chain(),
+            );
     }
 
     fn finish(&self, app: &mut App) {
         // `renzora::script_extension`, not `renzora_scripting`: a plugin
-        // reaches `bevy`, `renzora` and `renzora_ember` and nothing else.
+        // reaches `bevy`, `renzora` and `renzora::ui` and nothing else.
         let mut extensions = app
             .world_mut()
             .get_resource_or_insert_with(renzora::script_extension::ScriptExtensions::default);

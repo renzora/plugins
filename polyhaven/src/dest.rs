@@ -20,9 +20,9 @@ use std::path::{Path, PathBuf};
 
 use bevy::prelude::*;
 
-use renzora_ember::font::{ui_font, EmberFonts};
-use renzora_ember::theme::*;
-use renzora_ember::widgets::{button, folder_new_button, folder_picker, overlay_sized, FolderPick};
+use renzora::ui::font::{ui_font, EmberFonts};
+use renzora::ui::theme::*;
+use renzora::ui::widgets::{button, folder_new_button, folder_picker, overlay_sized, FolderPick};
 
 use crate::api::Kind;
 

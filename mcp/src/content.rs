@@ -850,7 +850,7 @@ fn add_ui_from_args(world: &mut World, args: &Value) -> Result<Entity, String> {
     // The engine's own helper, which the viewport's template drop uses: it knows
     // the canvas's layout node and the naming rule, and this should not keep a
     // second copy of either.
-    let entity = renzora_ember::game_ui::spawn::spawn_ui_canvas_with_template(world, &root.join(&rel));
+    let entity = renzora::ui::game_ui::spawn::spawn_ui_canvas_with_template(world, &root.join(&rel));
     if let Some(name) = args.get("name").and_then(Value::as_str) {
         let unique = unique_entity_name(world, name, entity);
         world.entity_mut(entity).insert(Name::new(unique));

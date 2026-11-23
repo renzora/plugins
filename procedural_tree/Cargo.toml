@@ -10,7 +10,7 @@
 
 [package]
 name = "procedural_tree"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 description = "Procedurally generated 3D trees — seeded branch/leaf meshes that sway in the world wind."
 
@@ -19,7 +19,7 @@ crate-type = ["dylib"]
 
 [dependencies]
 bevy = "0.19"
-renzora = { path = "../../crates/renzora" }
+renzora = { path = "../../engine/crates/shared/renzora_sdk", package = "renzora_sdk", features = ["ui"] }
 # The generator's RNG. Plain Rust with no Bevy anywhere in its graph, so the
 # native-plugin dep resolver builds it with cargo into a private rlib and hands
 # it to the plugin's `rustc` as an extra `--extern`. A duplicate copy costs

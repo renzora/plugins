@@ -18,13 +18,13 @@
 
 use bevy::prelude::*;
 
-use renzora_ember::font::{icon_text, ui_font, EmberFonts};
-use renzora_ember::interaction::PASS_THROUGH;
-use renzora_ember::UiInteraction;
-use renzora_ember::reactive::tracked::{bind_bg, bind_display, bind_text, bind_text_color, bind_with, keyed_list};
-use renzora_ember::reactive::{KeyedSnapshot, Rx};
-use renzora_ember::theme::*;
-use renzora_ember::widgets::{text_input, WebImages};
+use renzora::ui::font::{icon_text, ui_font, EmberFonts};
+use renzora::ui::interaction::PASS_THROUGH;
+use renzora::ui::UiInteraction;
+use renzora::ui::reactive::tracked::{bind_bg, bind_display, bind_text, bind_text_color, bind_with, keyed_list};
+use renzora::ui::reactive::{KeyedSnapshot, Rx};
+use renzora::ui::theme::*;
+use renzora::ui::widgets::{text_input, WebImages};
 
 use crate::api::{self, Kind};
 use crate::hub::{Catalogue, Hub};
@@ -306,7 +306,7 @@ fn page_counter(commands: &mut Commands, fonts: &EmberFonts) -> Entity {
 /// disappears when you reach the last page takes the layout with it, and the
 /// pair jumping sideways as you page is worse than a dim arrow.
 fn page_button(commands: &mut Commands, fonts: &EmberFonts, icon: &str, delta: i32) -> Entity {
-    let button = renzora_ember::widgets::icon_button(commands, fonts, icon);
+    let button = renzora::ui::widgets::icon_button(commands, fonts, icon);
     commands.entity(button).insert(PageButton(delta));
     bind_display(commands, button, |rx| hub(rx, |h| h.page_count() > 1));
 
@@ -572,7 +572,7 @@ fn thumbnail(commands: &mut Commands, fonts: &EmberFonts, row: &Row) -> Entity {
 /// part of a tile the eye is already on, and a bar in the card body would change
 /// the tile's height the moment a download started and reflow the whole grid.
 ///
-/// Hand-rolled rather than ember's [`progress`](renzora_ember::widgets::progress)
+/// Hand-rolled rather than ember's [`progress`](renzora::ui::widgets::progress)
 /// because that one takes its value once and hands back only the track. Binding
 /// a fill that advances needs the fill entity, which is not something the widget
 /// returns.

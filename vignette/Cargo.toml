@@ -11,7 +11,7 @@
 
 [package]
 name = "vignette"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 description = "Screen-edge darkening — a thin wrapper around Bevy's built-in Vignette."
 
@@ -22,7 +22,7 @@ crate-type = ["dylib"]
 
 [dependencies]
 bevy = "0.19"
-renzora = { path = "../../crates/renzora" }
+renzora = { path = "../../engine/crates/shared/renzora_sdk", package = "renzora_sdk" }
 
 # NOTE: no `serde` entry. Cargo would resolve a second copy, distinct from the
 # one the engine's Bevy was built against, and deriving `Serialize` on a struct

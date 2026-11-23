@@ -5,9 +5,15 @@
 //! plugin cannot link, so the emitters are built and switched through
 //! reflection, the same way the cloud deck is (see [`crate::clouds`]).
 //!
-//! One emitter per kind rather than one effect swapped between them, so a
-//! change from rain to snow crossfades: the last raindrops are still falling
-//! when the first flakes arrive, instead of every drop vanishing at once.
+//! One set of emitters per kind rather than one effect swapped between them,
+//! so a change from rain to snow crossfades: the last raindrops are still
+//! falling when the first flakes arrive, instead of every drop vanishing at
+//! once.
+//!
+//! **Harder rain is more layers.** A particle effect's spawn rate is fixed in
+//! its file, so how hard it falls is how many copies of the effect play, up to
+//! [`LAYERS`], each shifted sideways so their identical random streams never
+//! line up drop for drop.
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::ecs::reflect::ReflectComponent;
@@ -18,13 +24,30 @@ use bevy::reflect::GetPath;
 
 use crate::data::{Weather, WeatherState};
 
-/// What falls. Also the marker on its emitter, which is never saved: it has no
-/// `Name`, which the scene saver requires, and the hierarchy skips it.
-#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
+/// What falls.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Precipitation {
     Rain,
     Snow,
 }
+
+/// One emitter: which kind, and which of its layers. Never saved: it has no
+/// `Name`, which the scene saver requires, and the hierarchy skips it.
+#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PrecipitationEmitter {
+    pub kind: Precipitation,
+    pub layer: usize,
+}
+
+/// Most copies of an effect that play at once.
+pub const LAYERS: usize = 3;
+
+/// How much has to be falling for each layer to play. One layer is a light
+/// shower, two the preset as tuned, three a doubled amount.
+const LAYER_THRESHOLDS: [f32; LAYERS] = [0.15, 0.6, 1.3];
+
+/// Where each layer sits relative to the camera, so their drops interleave.
+const LAYER_OFFSETS: [Vec2; LAYERS] = [Vec2::ZERO, Vec2::new(6.3, 2.9), Vec2::new(-4.1, 7.7)];
 
 impl Precipitation {
     const ALL: [Precipitation; 2] = [Precipitation::Rain, Precipitation::Snow];
@@ -53,9 +76,6 @@ impl Precipitation {
         }
     }
 }
-
-/// Below this, rain or snow falls too thinly to be worth drawing.
-const VISIBLE: f32 = 0.15;
 
 fn lights_the_scene(layers: Option<&RenderLayers>) -> bool {
     layers.is_none_or(|l| l.intersects(&RenderLayers::default()))
@@ -125,24 +145,42 @@ fn set_play_state(world: &mut World, entity: Entity, state: &str) {
     }
 }
 
-/// Keep each kind's emitter over the camera, playing while it falls.
+/// Keep each kind's emitters over the camera, as many playing as it is
+/// falling hard.
 pub fn follow_precipitation(world: &mut World) {
     let state = *world.resource::<WeatherState>();
     let mut weathers = world.query::<&Weather>();
-    let any_enabled = weathers.iter(world).any(|w| w.enabled);
-    let particles_on = weathers.iter(world).any(|w| w.enabled && w.rain_particles);
+    let active = weathers.iter(world).find(|w| w.enabled).cloned();
+    let any_enabled = active.is_some();
+    let shown = |kind: Precipitation| {
+        active.as_ref().is_some_and(|w| match kind {
+            Precipitation::Rain => w.rain_particles,
+            Precipitation::Snow => w.snow_particles,
+        })
+    };
     let camera = camera_position(world);
     let heading = world.get_resource::<renzora::WindState>().map(|w| w.direction);
 
-    for kind in Precipitation::ALL {
-        let wanted = particles_on && kind.amount(&state) > VISIBLE;
-        let mut emitters = world.query::<(Entity, &Precipitation)>();
-        let emitter = emitters.iter(world).find(|(_, k)| **k == kind).map(|(e, _)| e);
+    for (kind, layer) in Precipitation::ALL.into_iter().flat_map(|k| (0..LAYERS).map(move |l| (k, l))) {
+        let wanted = shown(kind) && kind.amount(&state) > LAYER_THRESHOLDS[layer];
+        let offset = LAYER_OFFSETS[layer];
+        let place = |cam: Vec3| cam + Vec3::new(offset.x, kind.height(), offset.y);
+        let mut emitters = world.query::<(Entity, &PrecipitationEmitter)>();
+        let emitter = emitters
+            .iter(world)
+            .find(|(_, e)| e.kind == kind && e.layer == layer)
+            .map(|(e, _)| e);
 
         let Some(emitter) = emitter else {
             if wanted {
-                let at = camera.unwrap_or_default() + Vec3::Y * kind.height();
-                let entity = world.spawn((kind, renzora::HideInHierarchy, Transform::from_translation(at))).id();
+                let at = place(camera.unwrap_or_default());
+                let entity = world
+                    .spawn((
+                        PrecipitationEmitter { kind, layer },
+                        renzora::HideInHierarchy,
+                        Transform::from_translation(at),
+                    ))
+                    .id();
                 if !insert_particle_system(world, entity, kind.effect()) {
                     // No particle system in this build. Keep the empty emitter
                     // so this is not retried every frame, and say so once.
@@ -162,7 +200,7 @@ pub fn follow_precipitation(world: &mut World) {
 
         if let Some(mut transform) = world.get_mut::<Transform>(emitter) {
             if let Some(cam) = camera {
-                transform.translation = cam + Vec3::Y * kind.height();
+                transform.translation = place(cam);
             }
             // Lean the rain with the wind. The effect slants its drops along
             // local +X, so turning the emitter turns the slant; snow falls

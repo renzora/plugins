@@ -5,7 +5,7 @@
 # cargo would resolve a SECOND Bevy from crates.io and the plugin that came out
 # would have different `TypeId`s from the engine: it would load, run, and
 # corrupt the World. The path dependencies below exist so rust-analyzer can
-# resolve `renzora::` and `renzora_ember::` while you author; the real build is
+# resolve `renzora::` (UI included, as `renzora::ui::`) while you author; the real build is
 # the editor's, against `sdk/`.
 [workspace]
 
@@ -13,7 +13,7 @@
 name = "terminal"
 # 1.0.1: the listing already carries 1.0.0, which never drew anything on
 # Windows because the emulator answered none of the shell's questions.
-version = "1.0.3"
+version = "1.0.4"
 edition = "2021"
 description = "A real shell in a dock panel: an OS pseudo-terminal that runs vim, htop, git, claude and anything else full-screen."
 
@@ -50,11 +50,10 @@ bevy = "0.19"
 # `plugin_wants_keyboard` is what stops `G`/`S`/`Delete` firing at the scene
 # while the user is typing a command. Everything else is ordinary vocabulary -
 # `CurrentProject` for the shell's starting directory.
-renzora = { path = "../../engine/crates/renzora", default-features = false, features = ["editor"] }
+renzora = { path = "../../engine/crates/shared/renzora_sdk", package = "renzora_sdk", default-features = false, features = ["editor", "ui"] }
 # The panel registration and the theme palette the grid paints with. Has to be
 # the SHARED image, which is the whole reason a native plugin is bound to the
 # engine build it was compiled against.
-renzora_ember = { path = "../../engine/crates/renzora_ember" }
 # The pseudo-terminal itself: `openpty` + `forkpty` on Unix, ConPTY on Windows.
 # A pty is the entire reason a program like `vim` believes it is talking to a
 # terminal, so there is no version of this panel that does not open one.

@@ -10,7 +10,7 @@
 
 [package]
 name = "mcp"
-version = "1.6.0"
+version = "1.6.1"
 edition = "2021"
 description = "Lets Claude Code, or any MCP client, see and drive the open editor: build scenes, set materials, import models, place particles and UI, run scripts and play mode."
 
@@ -45,10 +45,9 @@ bevy = "0.19"
 # Colliders are made through the engine's physics API (`renzora::physics`), so
 # no physics engine is named here and they work on whichever backend the
 # project selected.
-renzora = { path = "../../engine/crates/renzora", default-features = false, features = ["editor"] }
+renzora = { path = "../../engine/crates/shared/renzora_sdk", package = "renzora_sdk", default-features = false, features = ["editor", "ui"] }
 # For `add_ui`, which mounts a template through the game UI's own spawn helper
 # rather than keeping a second copy of how a canvas is laid out and named.
-renzora_ember = { path = "../../engine/crates/renzora_ember" }
 
 # Deliberately no other dependencies, which is why there is no HTTP crate here
 # and `http.rs` speaks HTTP/1.1 by hand. A plugin that declares nothing from

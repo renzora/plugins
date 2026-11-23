@@ -1,7 +1,7 @@
 //! The cloud deck, reached through reflection.
 //!
 //! `CloudsData` lives in the engine's `renzora_clouds` crate, which a native
-//! plugin cannot link: it reaches `bevy`, `renzora` and `renzora_ember` and
+//! plugin cannot link: it reaches `bevy`, `renzora` and `renzora::ui` and
 //! nothing else. The component is registered for reflection (that is how a
 //! scene saves it), so the plugin finds it in the type registry by name and
 //! reads and writes the fields it drives by path. A build without clouds, or a

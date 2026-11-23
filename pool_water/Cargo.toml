@@ -21,7 +21,7 @@ crate-type = ["dylib"]
 
 [dependencies]
 bevy = "0.19"
-renzora = { path = "../../crates/renzora" }
+renzora = { path = "../../engine/crates/shared/renzora_sdk", package = "renzora_sdk" }
 
 # NOTE: no `serde` entry, deliberately. Cargo would resolve a second copy,
 # distinct from the one the engine's Bevy derives against. `renzora::serde`

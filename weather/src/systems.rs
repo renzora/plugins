@@ -9,7 +9,7 @@ use renzora::{Sun, WorldEnvironment};
 
 use crate::clouds::{self, Clouds};
 use crate::data::{Weather, WeatherBase, WeatherPreset, WeatherState};
-use crate::look::{self, WeatherLook};
+use crate::look::{self, Tuning, WeatherLook};
 
 /// Seconds for a dry street to soak through in a downpour, and for a soaked
 /// one to dry. Drying is the slower of the two, which is what makes the
@@ -17,12 +17,26 @@ use crate::look::{self, WeatherLook};
 const SOAK_SECONDS: f32 = 90.0;
 const DRY_SECONDS: f32 = 360.0;
 
-/// Seconds of heavy snowfall to cover the ground, and for a full cover to
-/// melt once it stops. Snow lies longer than rain stays wet.
-const SETTLE_SECONDS: f32 = 150.0;
-const MELT_SECONDS: f32 = 900.0;
+/// How much faster snow melts under full rain than on a dry day: rain on snow
+/// washes it away, which is what lets a storm clear a snowy street.
+const RAIN_MELT_BOOST: f32 = 3.0;
 
-const STRIKE_SECONDS: f32 = 0.7;
+pub(crate) const STRIKE_SECONDS: f32 = 0.7;
+
+/// How long the leader takes to step down from the cloud to the ground: two
+/// or three frames, a flicker rather than something to watch. Only when it
+/// arrives does the return stroke, the flash that lights the world, go off.
+pub(crate) const LEADER_SECONDS: f32 = 0.04;
+
+/// The world's light from a strike `age` seconds after the leader set off:
+/// nothing while it descends, then the return stroke's double flicker.
+pub(crate) fn strike_light(age: f32) -> f32 {
+    if age < LEADER_SECONDS {
+        0.0
+    } else {
+        strike_envelope(age - LEADER_SECONDS)
+    }
+}
 
 /// The engine's environment map settings: the sky's ambient light and
 /// reflections. Reached by reflection, like the cloud deck.
@@ -39,6 +53,8 @@ pub struct WeatherDriver {
     entity: Option<Entity>,
     base: Option<WeatherBase>,
     intensity: f32,
+    /// The fog, rain and snow amounts the current look was built with.
+    tuning: Tuning,
     /// The look blended from, the preset blended to, and how far along (0..1).
     from: Option<WeatherLook>,
     current: Option<WeatherLook>,
@@ -60,7 +76,7 @@ pub struct WeatherDriver {
 impl WeatherDriver {
     /// xorshift64*: enough randomness for weather and lightning without
     /// pulling a crate in for it.
-    fn random(&mut self) -> f32 {
+    pub(crate) fn random(&mut self) -> f32 {
         if self.rng == 0 {
             self.rng = 0x9E37_79B9_7F4A_7C15;
         }
@@ -103,7 +119,7 @@ impl WeatherDriver {
 /// A lightning strike's brightness `age` seconds in: a bright leader, then a
 /// weaker return stroke, which is the double flicker that makes a flash read
 /// as lightning rather than a lamp.
-fn strike_envelope(age: f32) -> f32 {
+pub(crate) fn strike_envelope(age: f32) -> f32 {
     if age < 0.0 {
         return 0.0;
     }
@@ -128,12 +144,14 @@ fn soak(w: f32, to: f32, rain: f32, dt: f32) -> f32 {
 }
 
 /// Snow cover heads toward full while snow falls, at a pace set by how hard,
-/// and melts away slowly once it stops.
-fn settle(cover: f32, snow: f32, dt: f32) -> f32 {
+/// and melts once it stops: over `melt_seconds` on a dry day, several times
+/// faster under rain.
+fn settle(cover: f32, snow: f32, rain: f32, dt: f32, cover_seconds: f32, melt_seconds: f32) -> f32 {
     if snow > 0.05 {
-        (cover + dt * snow / SETTLE_SECONDS).min(1.0)
+        (cover + dt * snow / cover_seconds.max(1.0)).min(1.0)
     } else {
-        (cover - dt / MELT_SECONDS).max(0.0)
+        let melt = (1.0 + rain.min(1.0) * RAIN_MELT_BOOST) / melt_seconds.max(1.0);
+        (cover - dt * melt).max(0.0)
     }
 }
 
@@ -221,7 +239,8 @@ fn drive(world: &mut World, driver: &mut WeatherDriver) {
         driver.entity = None;
         let mut state = world.resource_mut::<WeatherState>();
         let wetness = soak(state.wetness, 0.0, 0.0, dt);
-        let snow_cover = settle(state.snow_cover, 0.0, dt);
+        // With weather off nothing is falling, so the snow simply melts.
+        let snow_cover = settle(state.snow_cover, 0.0, 0.0, dt, 1.0, 120.0);
         *state = WeatherState { wetness, snow_cover, ..default() };
         return;
     };
@@ -246,6 +265,13 @@ fn drive(world: &mut World, driver: &mut WeatherDriver) {
         }
     };
     let intensity = weather.intensity.clamp(0.0, 2.0);
+    let tuning = Tuning::of(&weather);
+    // A tuning slider applies at once, without a blend: the user is looking
+    // at the result while dragging.
+    if driver.tuning != tuning {
+        driver.tuning = tuning;
+        driver.settled = false;
+    }
 
     if driver.rng == 0 {
         driver.rng = (world.resource::<Time>().elapsed().as_nanos() as u64) ^ (entity.to_bits() << 17) | 1;
@@ -255,8 +281,9 @@ fn drive(world: &mut World, driver: &mut WeatherDriver) {
     // in the chosen preset rather than blending in from nothing.
     let fresh = driver.entity != Some(entity) || driver.base.as_ref() != Some(&base) || driver.current.is_none();
     if fresh {
-        let look = WeatherLook::for_preset(weather.preset, &base, intensity);
+        let look = WeatherLook::for_preset(weather.preset, &base, intensity, tuning);
         driver.reset();
+        driver.tuning = tuning;
         driver.entity = Some(entity);
         driver.base = Some(base.clone());
         driver.intensity = intensity;
@@ -286,8 +313,11 @@ fn drive(world: &mut World, driver: &mut WeatherDriver) {
             driver.pending_duration = None;
         }
     }
-    let target_look = WeatherLook::for_preset(driver.target, &base, intensity);
+    let target_look = WeatherLook::for_preset(driver.target, &base, intensity, tuning);
     let current = match driver.from {
+        // Settled: the target itself, so a tuning change shows at once rather
+        // than staying with the look the blend started from.
+        Some(_) if driver.t >= 1.0 => target_look,
         Some(from) => from.lerp(&target_look, smoothstep(driver.t)),
         None => target_look,
     };
@@ -309,11 +339,13 @@ fn drive(world: &mut World, driver: &mut WeatherDriver) {
 
     // Lightning, more often the stormier it is.
     let mut flash = 0.0;
+    let mut struck = false;
+    let frequency = weather.lightning_frequency.clamp(0.05, 5.0);
     if weather.lightning && current.lightning > 0.05 {
         if let Some(age) = driver.strike_age.as_mut() {
             *age += dt;
-            flash = strike_envelope(*age);
-            if *age > STRIKE_SECONDS {
+            flash = strike_light(*age);
+            if *age > LEADER_SECONDS + STRIKE_SECONDS {
                 driver.strike_age = None;
                 flash = 0.0;
             }
@@ -321,27 +353,39 @@ fn drive(world: &mut World, driver: &mut WeatherDriver) {
             driver.next_strike -= dt;
             if driver.next_strike <= 0.0 {
                 driver.strike_age = Some(0.0);
-                flash = 1.0;
-                driver.next_strike = driver.range(4.0, 16.0) / current.lightning;
+                struck = true;
+                driver.next_strike = driver.range(4.0, 16.0) / (current.lightning * frequency);
             }
         }
     } else {
         driver.strike_age = None;
     }
     let flashing = driver.strike_age.is_some();
+    let flash_light = flash * weather.lightning_brightness.clamp(0.0, 3.0);
+    if struck && weather.lightning_bolts {
+        let seed = driver.random();
+        crate::bolt::strike(world, &current, weather.lightning_brightness.clamp(0.0, 3.0), seed);
+    }
 
     // Write only while something is changing. A settled weather leaves the
     // components alone, so it does not fight a user dragging a cloud slider
     // and does not mark the scene changed every frame.
     if driver.t < 1.0 || flashing || !driver.settled {
-        write_look(world, &current, &base, flash, deck.map(|(e, _)| e));
+        write_look(world, &current, &base, flash_light, deck.map(|(e, _)| e));
         driver.settled = driver.t >= 1.0 && !flashing;
     }
 
     let mut state = world.resource_mut::<WeatherState>();
     let soak_to = if current.rain > 0.05 { 1.0 } else { 0.0 };
     let wetness = soak(state.wetness, soak_to, current.rain, dt);
-    let snow_cover = settle(state.snow_cover, current.snow, dt);
+    let snow_cover = settle(
+        state.snow_cover,
+        current.snow,
+        current.rain,
+        dt,
+        weather.snow_cover_seconds,
+        weather.snow_melt_seconds,
+    );
     *state = WeatherState {
         cloudiness: if base.has_clouds { current.clouds.coverage } else { 0.0 },
         rain: current.rain,

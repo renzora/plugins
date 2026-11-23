@@ -35,7 +35,7 @@
 
 use bevy::prelude::*;
 use renzora::core::RenzoraShellExt;
-use renzora_ember::panel::RegisterPanelContent;
+use renzora::ui::panel::RegisterPanelContent;
 
 mod grid;
 mod keys;

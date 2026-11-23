@@ -11,7 +11,7 @@
 //! `renzora_procedural_tree_editor` (the preset and inspector). All three are
 //! here now, and the reason is the native-plugin dependency rule: a plugin is
 //! compiled by a bare `rustc` against the staged SDK, and the only engine crates
-//! it is handed are `bevy`, `renzora` and `renzora_ember`. A workspace crate
+//! it is handed are `bevy`, `renzora` and `renzora::ui`. A workspace crate
 //! that depends on Bevy — which the generator does — cannot be reached at all,
 //! and cargo is forbidden from resolving one, because a second Bevy compilation
 //! would give this plugin different `TypeId`s from the engine and let it read
