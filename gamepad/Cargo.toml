@@ -11,7 +11,7 @@
 
 [package]
 name = "gamepad"
-version = "1.0.3"
+version = "1.0.4"
 edition = "2021"
 description = "Live gamepad diagnostics — sticks, triggers and buttons per connected pad."
 
