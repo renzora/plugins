@@ -10,7 +10,7 @@
 
 [package]
 name = "procedural_tree"
-version = "1.0.2"
+version = "1.0.3"
 edition = "2021"
 description = "Procedurally generated 3D trees — seeded branch/leaf meshes that sway in the world wind."
 

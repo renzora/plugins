@@ -11,7 +11,7 @@
 
 [package]
 name = "ai_mesh"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "Generate textured 3D models from a prompt or an image with Meshy, Tripo, fal.ai or a local Hunyuan3D server, imported straight into the project."
 
