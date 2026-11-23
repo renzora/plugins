@@ -35,6 +35,6 @@ rfd = "0.15"
 marketplace_id = "ai_mesh"
 category = "plugins"
 name = "AI Mesh Generator"
-tags = ["editor", "tools", "ai", "assets", "models", "generation"]
+tags = ["editor", "ai", "assets", "models", "generation"]
 price_credits = 0
 min_engine_version = "r1-alpha8"

@@ -11,7 +11,7 @@
 
 [package]
 name = "gamepad"
-version = "1.0.2"
+version = "1.0.3"
 edition = "2021"
 description = "Live gamepad diagnostics — sticks, triggers and buttons per connected pad."
 
@@ -30,4 +30,4 @@ marketplace_id = "gamepad"
 category = "plugins"
 tags = ["editor", "tools", "input", "gamepad", "debug"]
 price_credits = 0
-min_engine_version = "r1-alpha7"
+min_engine_version = "r1-alpha8"
