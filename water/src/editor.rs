@@ -562,7 +562,7 @@ pub fn buoyant_inspector_entry() -> InspectorEntry {
 // ============================================================================
 
 /// Editor-scope companion to `renzora_water::WaterPlugin`.
-pub fn register(app: &mut App) {
+pub(crate) fn register(app: &mut App) {
     app.init_resource::<WaterInspectorState>();
     app.register_inspector(water_inspector_entry());
     app.register_inspector(buoyant_inspector_entry());

@@ -14,14 +14,9 @@ use bevy::prelude::*;
 // at all, so cargo is never invoked and the build is one `rustc`.
 use renzora::serde::{Deserialize, Serialize};
 
-// The inspector half. NOT behind `#[cfg(feature = "editor")]`: a native plugin
-// has no cargo features at all — rustc compiles it directly against the SDK
-// with none set — so the gate would read false and the whole inspector entry
-// would silently vanish. It was a separate `renzora_lens_distortion_editor`
-// crate while this shipped in the binary, because the runtime half had to
-// compile lean; a plugin is only ever loaded by an editor or a game that
-// already carries the shared images, so the split buys nothing here.
-mod editor;
+// The inspector half lives in `src/editor.rs`. `renzora::plugin!` declares the
+// `editor` module itself (the build finds it from `src/editor.rs`), compiling it
+// in the editor and leaving it out of a lean game build.
 
 /// Authored lens-distortion settings, routed to cameras as a bevy
 /// `LensDistortion`.
@@ -123,7 +118,6 @@ impl Plugin for LensDistortionPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<LensDistortionSettings>();
         app.add_systems(Update, (sync_lens_distortion, cleanup_lens_distortion));
-        editor::register(app);
     }
 }
 

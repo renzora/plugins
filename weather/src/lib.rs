@@ -32,10 +32,9 @@ pub mod script;
 pub mod snow_cover;
 pub mod systems;
 
-// The inspector section. NOT behind `#[cfg(feature = "editor")]`: a native
-// plugin has no cargo features at all, so the gate would read false and the
-// section would silently vanish from the inspector.
-mod editor;
+// The inspector section lives in `src/editor.rs`. `renzora::plugin!` declares
+// the `editor` module itself (the build finds it from `src/editor.rs`),
+// compiling it in the editor and leaving it out of a lean game build.
 
 pub use data::{Weather, WeatherBase, WeatherPreset, WeatherState};
 pub use look::WeatherLook;
@@ -57,7 +56,6 @@ impl Plugin for WeatherPlugin {
             .init_resource::<WeatherState>()
             .init_resource::<WeatherDriver>()
             .add_observer(script::handle_script_actions);
-        editor::register(app);
 
         // Weather is what the world looks like; a server has nothing to show.
         if app.world().contains_resource::<renzora::DedicatedServer>() {

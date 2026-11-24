@@ -80,6 +80,6 @@ fn lens_distortion_entry() -> InspectorEntry {
     }
 }
 
-pub fn register(app: &mut App) {
+pub(crate) fn register(app: &mut App) {
     app.register_inspector(lens_distortion_entry());
 }

@@ -9,8 +9,9 @@
 //! Neither problem exists here. `renzora_editor_framework` only *re-exports*
 //! `AppEditorExt` / `InspectorEntry` / `FieldDef` from the contract crate, so
 //! this imports them from `renzora` directly and links no framework at all. The
-//! two halves are one plugin again, and a game that loads it pays a single `Vec`
-//! push into a registry it never reads.
+//! two halves are one plugin again. `renzora::plugin!` declares this `editor`
+//! module itself (the build finds it from `src/editor.rs`), compiling it in the
+//! editor and leaving it out of a lean game build.
 
 use bevy::prelude::*;
 use renzora::AppEditorExt;
@@ -307,8 +308,9 @@ pub(crate) fn pool_water_inspector_entry() -> renzora::InspectorEntry {
     }
 }
 
-/// Registered from the one plugin's `build`, unconditionally — see the note in
-/// `lib.rs` on why there is no `cfg(feature = "editor")` here.
+/// Called by `renzora::plugin!`, which declares this `editor` module itself,
+/// after the plugin's `build`; see the note
+/// in `lib.rs` on why there is no `cfg(feature = "editor")` here.
 pub(crate) fn register(app: &mut App) {
     app.register_inspector(pool_water_inspector_entry());
 }

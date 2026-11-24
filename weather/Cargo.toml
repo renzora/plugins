@@ -1,12 +1,10 @@
-# Native plugin: an ordinary Bevy plugin shipped as source and compiled against
-# the staged SDK on the machine that installs it.
-#
-# Do NOT run `cargo build` here. `plugins/` is outside the engine workspace, so
-# cargo would resolve a SECOND Bevy from crates.io and the plugin that came out
-# would have different `TypeId`s from the engine: it would load, run, and
-# corrupt the World. The path dependency below exists so rust-analyzer can
-# resolve `renzora::` while you author; the real build is the editor's, against
-# `sdk/`.
+# Native plugin, shipped as source: the Renzora editor (and `cargo renzora`)
+# compiles it against the engine it is installed in, not against wherever the
+# `bevy` and `renzora` entries below point. They point rust-analyzer at the
+# engine repository at an engine tag, which cargo clones once per machine; bump
+# the tag to match the engine you target. Keep the `bevy` entry all the same:
+# Bevy's derive macros look for it by name. `cargo build` here is refused by
+# `renzora::plugin!` with an explanation, because it would build a second Bevy.
 [workspace]
 
 [package]
@@ -19,10 +17,10 @@ description = "Dynamic weather: presets from clear to storm and snow that blend 
 crate-type = ["dylib"]
 
 [dependencies]
-bevy = "0.20"
+bevy = { git = "https://github.com/renzora/engine", tag = "r1-alpha8-nightly-23nov26" }
 # `editor` for the inspector section. serde comes from the contract crate's
 # re-export, so this plugin declares no third-party crates and builds offline.
-renzora = { path = "../../engine/crates/shared/renzora_sdk", package = "renzora_sdk", features = ["editor", "ui"] }
+renzora = { git = "https://github.com/renzora/engine", tag = "r1-alpha8-nightly-23nov26", package = "renzora_sdk", features = ["editor", "ui"] }
 # The Inspector section, which shows only the settings for the weather that is
 # happening, so it is drawn with the editor's own widgets.
 

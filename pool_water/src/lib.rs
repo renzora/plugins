@@ -4,8 +4,10 @@
 //! In the workspace this was two crates, `renzora_pool_water` (Runtime) and
 //! `renzora_pool_water_editor` (Editor), split so a shipped game would not drag
 //! in the editor framework. Here they are one `Runtime` plugin: it loads in the
-//! editor *and* in a copy-based export, and the inspector registration costs a
-//! game one `Vec` push into a registry it never reads.
+//! editor *and* in a copy-based export. The inspector lives in `src/editor.rs`:
+//! `renzora::plugin!` declares the `editor` module itself (the build finds it
+//! from `src/editor.rs`), compiling it in the editor and leaving it out of a
+//! lean game build.
 //!
 //! Two things had to change coming across, and both are silent failures rather
 //! than compile errors if missed:
@@ -18,7 +20,6 @@
 //!   with no features set, so that gate is always false — the inspector would
 //!   vanish with nothing logged.
 
-pub mod inspector;
 pub mod material;
 pub mod simulation;
 
@@ -355,8 +356,6 @@ impl Plugin for PoolWaterPlugin {
                     cleanup_pool_water,
                 ),
             );
-
-        inspector::register(app);
     }
 }
 

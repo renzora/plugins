@@ -134,7 +134,7 @@ fn sway_entry() -> InspectorEntry {
     }
 }
 
-pub fn register(app: &mut App) {
+pub(crate) fn register(app: &mut App) {
     app.register_inspector(wind_entry());
     app.register_inspector(sway_entry());
 }

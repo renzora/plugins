@@ -241,7 +241,7 @@ fn inspector_entry() -> InspectorEntry {
     }
 }
 
-pub fn register(app: &mut App) {
+pub(crate) fn register(app: &mut App) {
     app.register_inspector(inspector_entry());
     app.register_native_inspector_ui("weather", weather_ui);
 }

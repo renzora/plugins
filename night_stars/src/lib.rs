@@ -5,7 +5,9 @@
 //! latter to fade the field by sun elevation. Both are named by a binary and by
 //! this runtime-loaded library, so both need one definition.
 
-pub mod inspector;
+// The inspector lives in `src/editor.rs`. `renzora::plugin!` declares the
+// `editor` module itself (the build finds it from `src/editor.rs`), compiling it
+// in the editor and leaving it out of a lean game build.
 
 use bevy::pbr::Material;
 use bevy::prelude::*;
@@ -203,8 +205,6 @@ impl Plugin for NightStarsPlugin {
             .init_resource::<NightStarsState>()
             .add_plugins(MaterialPlugin::<NightStarsMaterial>::default())
             .add_systems(Update, sync_night_stars);
-
-        inspector::register(app);
     }
 }
 

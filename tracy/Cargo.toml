@@ -1,3 +1,11 @@
+# Native plugin, shipped as source: the Renzora editor (and `cargo renzora`)
+# compiles it against the engine it is installed in, not against wherever the
+# `bevy` and `renzora` entries below point. They point rust-analyzer at the
+# engine repository at an engine tag, which cargo clones once per machine; bump
+# the tag to match the engine you target. Keep the `bevy` entry all the same:
+# Bevy's derive macros look for it by name. `cargo build` here is refused by
+# `renzora::plugin!` with an explanation, because it would build a second Bevy.
+#
 # Declares its OWN workspace root. Without it cargo walks up, finds the engine's
 # Cargo.toml and uses that workspace's target dir and profiles — even though
 # `plugins` is in its `exclude` list, which only stops membership.
@@ -34,12 +42,12 @@ min_engine_version = "r1-alpha8"
 crate-type = ["dylib"]
 
 [dependencies]
-bevy = "0.19"
+bevy = { git = "https://github.com/renzora/engine", tag = "r1-alpha8-nightly-23nov26" }
 # `editor`, because the Settings section and the plugin's own `Editor` scope are
-# both behind it. These paths are read by rust-analyzer and by Bevy's derive
-# macros only: the plugin is compiled by `rustc` against the staged SDK, which
+# both behind it. Where these entries point is read by rust-analyzer only: the
+# plugin is compiled by `rustc` against the engine it is installed in, which
 # supplies the real `--extern` edges.
-renzora = { path = "../../engine/crates/shared/renzora_sdk", package = "renzora_sdk", features = ["editor", "ui"] }
+renzora = { git = "https://github.com/renzora/engine", tag = "r1-alpha8-nightly-23nov26", package = "renzora_sdk", features = ["editor", "ui"] }
 # The Tracy protocol client. NOT `no_std`: this opens a socket and spawns Tracy's
 # own worker thread, so std is not optional here the way it is for a
 # post-process effect.

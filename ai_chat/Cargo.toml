@@ -1,13 +1,10 @@
-# Native plugin: an ordinary Bevy plugin shipped as source and compiled against
-# the staged SDK on the machine that installs it.
-#
-# ⚠ Do NOT run `cargo build` here. `plugins/` is outside the engine workspace, so
-# cargo would resolve a SECOND Bevy from crates.io and the plugin that came out
-# would have different `TypeId`s from the engine — it would load, run, and
-# corrupt the World. The path dependencies below exist so rust-analyzer can
-# resolve `renzora::` (UI included, as `renzora::ui::`) while you author; the real build is
-# `cargo renzora`, which compiles this against the artifacts the engine was
-# actually built from.
+# Native plugin, shipped as source: the Renzora editor (and `cargo renzora`)
+# compiles it against the engine it is installed in, not against wherever the
+# `bevy` and `renzora` entries below point. They point rust-analyzer at the
+# engine repository at an engine tag, which cargo clones once per machine; bump
+# the tag to match the engine you target. Keep the `bevy` entry all the same:
+# Bevy's derive macros look for it by name. `cargo build` here is refused by
+# `renzora::plugin!` with an explanation, because it would build a second Bevy.
 [workspace]
 
 [package]
@@ -20,8 +17,8 @@ description = "Chat with a local or hosted LLM, in an editor panel."
 crate-type = ["dylib"]
 
 [dependencies]
-bevy = "0.19"
-renzora = { path = "../../engine/crates/shared/renzora_sdk", package = "renzora_sdk", features = ["ui"] }
+bevy = { git = "https://github.com/renzora/engine", tag = "r1-alpha8-nightly-23nov26" }
+renzora = { git = "https://github.com/renzora/engine", tag = "r1-alpha8-nightly-23nov26", package = "renzora_sdk", features = ["ui"] }
 
 # HTTP is `renzora::net`, and `serde`/`serde_json` come from the contract crate's
 # re-exports — a plugin's own copies would be different crates from the ones the

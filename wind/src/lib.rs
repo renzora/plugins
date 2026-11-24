@@ -27,10 +27,9 @@ use renzora::{WindSection, WindState, WindSway, WorldEnvironment};
 pub mod material;
 pub mod script_extension;
 
-// The inspector sections. NOT behind `#[cfg(feature = "editor")]`: a native
-// plugin has no cargo features at all, so the gate would read false and both
-// sections would silently vanish from the inspector.
-mod editor;
+// The inspector sections live in `src/editor.rs`. `renzora::plugin!` declares
+// the `editor` module itself (the build finds it from `src/editor.rs`),
+// compiling it in the editor and leaving it out of a lean game build.
 
 pub use material::{WindParams, WindSwayExt, WindSwayMaterial};
 
@@ -471,8 +470,6 @@ impl Plugin for WindPlugin {
                     .chain(),
             )
             .add_observer(handle_wind_script_actions);
-
-        editor::register(app);
     }
 
     fn finish(&self, app: &mut App) {

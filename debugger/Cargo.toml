@@ -1,12 +1,10 @@
-# Native plugin: an ordinary Bevy plugin shipped as source and compiled against
-# the staged SDK on the machine that installs it.
-#
-# ⚠ Do NOT run `cargo build` here. `plugins/` is outside the engine workspace, so
-# cargo would resolve a SECOND Bevy from crates.io and the plugin that came out
-# would have different `TypeId`s from the engine — it would load, run, and
-# corrupt the World. The path dependencies below exist so rust-analyzer can
-# resolve `renzora::` (UI included, as `renzora::ui::`) while you author; the real build is
-# the editor's, against `sdk/`.
+# Native plugin, shipped as source: the Renzora editor (and `cargo renzora`)
+# compiles it against the engine it is installed in, not against wherever the
+# `bevy` and `renzora` entries below point. They point rust-analyzer at the
+# engine repository at an engine tag, which cargo clones once per machine; bump
+# the tag to match the engine you target. Keep the `bevy` entry all the same:
+# Bevy's derive macros look for it by name. `cargo build` here is refused by
+# `renzora::plugin!` with an explanation, because it would build a second Bevy.
 [workspace]
 
 [package]
@@ -44,13 +42,13 @@ min_engine_version = "r1-alpha8"
 crate-type = ["dylib"]
 
 [dependencies]
-bevy = "0.19"
+bevy = { git = "https://github.com/renzora/engine", tag = "r1-alpha8-nightly-23nov26" }
 # `diagnostics` is what carries the material and script perf tables plus the two
 # count resources their owners publish. Those types live in the contract crate
 # precisely so this plugin can name them: a native plugin links `bevy` and
 # `renzora` (UI included, as `renzora::ui`) and nothing else, so a panel reading
 # `renzora_shader::material::perf::MaterialPerfStats` could never have been one.
-renzora = { path = "../../engine/crates/shared/renzora_sdk", package = "renzora_sdk", features = ["editor", "diagnostics", "ui"] }
+renzora = { git = "https://github.com/renzora/engine", tag = "r1-alpha8-nightly-23nov26", package = "renzora_sdk", features = ["editor", "diagnostics", "ui"] }
 # The Settings section for stat refresh rates, and the UI diagnostics the UI
 # probes read. Has to be the SHARED image, which is the whole reason a native
 # plugin is bound to the engine build it was compiled against.

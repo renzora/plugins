@@ -42,9 +42,10 @@ fn inspector_entry() -> InspectorEntry {
     }
 }
 
-/// Registered unconditionally from the one plugin's `build` — a native plugin
-/// compiles with no cargo features, so a `cfg(feature = "editor")` gate would be
-/// permanently false and this section would vanish with nothing logged.
+/// Called by `renzora::plugin!`, which declares this `editor` module itself,
+/// after the plugin's `build`. Not a
+/// `cfg(feature = "editor")` gate: a native plugin compiles with no cargo
+/// features, so that gate would be permanently false.
 pub(crate) fn register(app: &mut App) {
     app.register_inspector(inspector_entry());
 }

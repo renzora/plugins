@@ -27,10 +27,9 @@ pub mod sim;
 pub mod systems;
 pub mod world_wind;
 
-// The inspector entries. NOT behind `#[cfg(feature = "editor")]`: a native
-// plugin has no cargo features at all, so the gate would read false and every
-// water section would silently vanish from the inspector.
-mod editor;
+// The inspector entries live in `src/editor.rs`. `renzora::plugin!` declares the
+// `editor` module itself (the build finds it from `src/editor.rs`), compiling it
+// in the editor and leaving it out of a lean game build.
 
 use bevy::asset::embedded_asset;
 use bevy::prelude::*;
@@ -93,8 +92,6 @@ impl Plugin for WaterPlugin {
             Update,
             buoyancy::apply_buoyancy.after(systems::update_water_heightfield),
         );
-
-        editor::register(app);
     }
 }
 

@@ -6,15 +6,15 @@
 //! and routed onto cameras by `sync_vignette`, which toggles bevy's `Vignette`
 //! component. The bevy post-process effect stack renders it.
 //!
-//! ## Why the inspector registration is unconditional here
+//! ## Where the inspector lives
 //!
 //! In-workspace this crate gated `inspector_entry()` behind a cargo `editor`
-//! feature. A native plugin has no features to gate on — `rustc` compiles it
+//! feature. A native plugin has no features to gate on: `rustc` compiles it
 //! directly against the SDK with none set, so `#[cfg(feature = "editor")]` would
 //! be false and the Vignette section would silently vanish from the inspector.
-//! Registering unconditionally is also simply correct: `register_inspector`
-//! writes into a registry resource that a shipped game never reads, so the cost
-//! in a game is one `Vec` push at startup.
+//! The entry lives in `src/editor.rs` instead: `renzora::plugin!` declares the
+//! `editor` module itself (the build finds it from `src/editor.rs`), compiling
+//! it in the editor and leaving it out of a lean game build.
 //!
 //! Declared `Runtime` so it loads in the editor viewport *and* a copy-based
 //! export. `plugin!` defaults to `Editor`, which would have shipped no vignette
@@ -24,7 +24,6 @@ use bevy::post_process::effect_stack::Vignette;
 use bevy::prelude::*;
 
 use renzora::serde::{Deserialize, Serialize};
-use renzora::{AppEditorExt, InspectorEntry};
 
 /// Authored vignette settings, routed to cameras as a bevy `Vignette`.
 ///
@@ -124,50 +123,6 @@ fn cleanup_vignette(
     }
 }
 
-fn inspector_entry() -> InspectorEntry {
-    InspectorEntry {
-        type_id: "vignette",
-        display_name: "Vignette",
-        icon: "aperture",
-        category: "post_process",
-        has_fn: |world, entity| world.get::<VignetteSettings>(entity).is_some(),
-        add_fn: Some(|world, entity| {
-            world.entity_mut(entity).insert(VignetteSettings::default());
-        }),
-        remove_fn: Some(|world, entity| {
-            world
-                .entity_mut(entity)
-                .remove::<(VignetteSettings, Vignette)>();
-        }),
-        is_enabled_fn: Some(|world, entity| {
-            world
-                .get::<VignetteSettings>(entity)
-                .map(|s| s.enabled)
-                .unwrap_or(false)
-        }),
-        set_enabled_fn: Some(|world, entity, val| {
-            if let Some(mut s) = world.get_mut::<VignetteSettings>(entity) {
-                s.enabled = val;
-            }
-        }),
-        fields: vec![
-            renzora::float_field!("Intensity", VignetteSettings, intensity, 0.01, 0.0, 5.0),
-            renzora::float_field!("Radius", VignetteSettings, radius, 0.01, 0.0, 2.0),
-            renzora::float_field!("Smoothness", VignetteSettings, smoothness, 0.05, 0.0, 20.0),
-            renzora::float_field!("Roundness", VignetteSettings, roundness, 0.01, 0.0, 1.0),
-            renzora::vec3_color_field!("Color", VignetteSettings, color),
-            renzora::float_field!(
-                "Edge Compensation",
-                VignetteSettings,
-                edge_compensation,
-                0.01,
-                0.0,
-                2.0
-            ),
-        ],
-    }
-}
-
 #[derive(Default)]
 pub struct VignettePlugin;
 
@@ -176,7 +131,6 @@ impl Plugin for VignettePlugin {
         info!("[vignette] native plugin (bevy built-in)");
         app.register_type::<VignetteSettings>();
         app.add_systems(Update, (sync_vignette, cleanup_vignette));
-        app.register_inspector(inspector_entry());
     }
 }
 
