@@ -44,6 +44,13 @@ pub struct PythonPlugin;
 impl Plugin for PythonPlugin {
     fn build(&self, app: &mut App) {
         app.add_script_backend(backend::PythonBackend::default());
+        // A project with these files needs this plugin in its exported game.
+        // Nothing else to ship: a game reads its scripts from the archive.
+        renzora::register_plugin_export(renzora::PluginExport {
+            plugin: "python".into(),
+            script_extensions: vec!["py".into()],
+            ..Default::default()
+        });
         // Colouring for the code editor, which knows a language a plugin brings
         // only from the plugin's description of it. Triple-quoted strings span
         // lines, and capitalised names colour as types (classes, by PEP 8).

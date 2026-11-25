@@ -50,6 +50,13 @@ pub struct LuaPlugin;
 impl Plugin for LuaPlugin {
     fn build(&self, app: &mut App) {
         app.add_script_backend(interp::LuaBackend::default());
+        // A project with these files needs this plugin in its exported game.
+        // Nothing else to ship: a game reads its scripts from the archive.
+        renzora::register_plugin_export(renzora::PluginExport {
+            plugin: "lua".into(),
+            script_extensions: vec!["lua".into(), "blueprint".into(), "bp".into()],
+            ..Default::default()
+        });
         // Colouring for the code editor, which knows a language a plugin brings
         // only from the plugin's description of it. `[[ ]]` long strings are
         // not described: the editor closes a string on the delimiter that

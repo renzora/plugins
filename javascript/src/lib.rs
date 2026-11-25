@@ -51,6 +51,13 @@ pub struct JavaScriptPlugin;
 impl Plugin for JavaScriptPlugin {
     fn build(&self, app: &mut App) {
         app.add_script_backend(backend::JavaScriptBackend::default());
+        // A project with these files needs this plugin in its exported game.
+        // Nothing else to ship: a game reads its scripts from the archive.
+        renzora::register_plugin_export(renzora::PluginExport {
+            plugin: "javascript".into(),
+            script_extensions: vec!["js".into(), "ts".into()],
+            ..Default::default()
+        });
         // Colouring for the code editor, which knows no language a plugin
         // brings until the plugin describes it.
         app.add_code_syntax(syntax::JAVASCRIPT);
