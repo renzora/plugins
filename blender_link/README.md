@@ -59,6 +59,16 @@ object is kept as a `.glb` instead, which loads the same way. The entity's
 `MeshInstanceData` points at the file, so saving the scene saves the object
 like any imported model. Lights save as their components.
 
+Each material is written as an editable `.material` graph in
+`blender/<file>/materials/`, and its textures into `blender/<file>/textures/`,
+where an import puts them. A model loaded from its file binds to those by
+material name, so the saved scene renders the material graphs and the
+material editor edits what the model wears. Blender stays the source of
+truth here too: the next change to a material in Blender writes its file
+again, over any edit made to it in the editor. While linked, the objects draw
+with the materials Blender sends, so an edit made to a `.material` shows once
+the scene is reopened without Blender.
+
 Opening the scene later loads the model files. Connecting Blender again
 finds the objects by name and takes them over, so nothing is duplicated.
 

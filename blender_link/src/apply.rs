@@ -87,6 +87,13 @@ pub struct Session {
     images: HashMap<(String, bool), Handle<Image>>,
     /// Objects waiting to be baked, and when they last changed.
     pending: HashMap<String, Instant>,
+    /// Each material's version, moved on by every material message, and the
+    /// version last written as a `.material` file: a material is written
+    /// again only when it changed.
+    material_versions: HashMap<String, u64>,
+    written_materials: HashMap<String, u64>,
+    /// Texture keys already written into the project's `textures` folder.
+    written_textures: HashSet<String>,
     /// Model files being written in the background, by object.
     baking: HashMap<String, (Entity, bevy::tasks::Task<Result<String, String>>)>,
     /// Objects drawing live geometry: a model the engine loads for them from
@@ -129,6 +136,10 @@ pub fn pump(world: &mut World) {
                 // afresh, so it sends every one again.
                 session.textures.clear();
                 session.images.clear();
+                // Written again on this connection's first bake of each, in
+                // case the files were deleted while the two were apart.
+                session.written_materials.clear();
+                session.written_textures.clear();
             }
             Incoming::Message { conn, header, payload } => {
                 if conn != world.resource::<Session>().conn {
@@ -497,6 +508,11 @@ fn material(world: &mut World, header: &Value, payload: &[u8]) -> Result<(), Str
     data.base_color_texture = resolve(world, message.base_color);
     data.normal_texture = resolve(world, message.normal);
     let name = data.name.clone();
+    *world
+        .resource_mut::<Session>()
+        .material_versions
+        .entry(name.clone())
+        .or_insert(0) += 1;
     let existing = world.resource::<Session>().material_handles.get(&name).cloned();
     world
         .resource_mut::<Session>()
@@ -694,6 +710,12 @@ fn start_bake(world: &mut World, project: &std::path::Path, name: &str) {
     let glb = glb::write(name, mesh, &session.materials);
     let stem = file_safe(session.file.trim_end_matches(".blend"));
     let base = format!("blender/{stem}/{}", file_safe(name));
+    let used: Vec<String> = mesh
+        .primitives
+        .iter()
+        .filter_map(|p| p.material.clone())
+        .collect();
+    write_materials(world, project, &stem, &used);
     let project = project.to_path_buf();
     let task = bevy::tasks::AsyncComputeTaskPool::get().spawn(async move {
         let (bytes, extension) = match renzora::build_model_file(&glb) {
@@ -706,6 +728,96 @@ fn start_bake(world: &mut World, project: &std::path::Path, name: &str) {
         .resource_mut::<Session>()
         .baking
         .insert(name.to_string(), (entity, task));
+}
+
+/// Write each of `names` that changed since it was last written as an editable
+/// `.material` graph, with its textures as files, exactly where an import puts
+/// them: `blender/<file>/materials/<material>.material` and
+/// `blender/<file>/textures/`.
+///
+/// That folder is what makes them the model's materials. A model loaded from a
+/// file binds each of its glTF materials, by name, to
+/// `<model folder>/materials/<name>.material` when one exists, so with these
+/// written the saved scene (and Play, and an exported game) renders the
+/// material graphs, and opening one in the material editor edits what the
+/// model wears. Without them the model carried its materials only inside the
+/// `.rvg`, where nothing could edit them.
+///
+/// Written by the engine's own `.material` writer, through the event an
+/// importer fires per material, so the file is the graph an import would make.
+/// Done when the object is baked rather than per message: the writer compiles
+/// the graph's shader, which is not something to do on every slider step in
+/// Blender. Blender stays the source of truth: the next change to a material
+/// there writes its file again, over any edit made to it here.
+fn write_materials(world: &mut World, project: &std::path::Path, stem: &str, names: &[String]) {
+    use renzora::{PbrAdvanced, PbrAlphaMode, PbrMaterialExtracted};
+
+    let folder = format!("blender/{stem}");
+    let mut events = Vec::new();
+    {
+        let mut session = world.resource_mut::<Session>();
+        for name in names {
+            let Some(version) = session.material_versions.get(name).copied() else {
+                continue;
+            };
+            if session.written_materials.get(name) == Some(&version) {
+                continue;
+            }
+            let Some(data) = session.materials.get(name).cloned() else {
+                continue;
+            };
+            let mut texture_path = |tex: &Option<protocol::Texture>| -> Option<String> {
+                let tex = tex.as_ref()?;
+                // The key is `image|path|stamp`; the file is named for the image.
+                let image = tex.key.split('|').next().unwrap_or("texture");
+                let rel = format!("{folder}/textures/{}.{}", file_safe(image), tex.extension());
+                if !session.written_textures.contains(&tex.key) {
+                    let path = project.join(&rel);
+                    if let Some(dir) = path.parent() {
+                        let _ = std::fs::create_dir_all(dir);
+                    }
+                    if let Err(e) = std::fs::write(&path, tex.bytes.as_slice()) {
+                        console_warn(CATEGORY, format!("Blender link: could not save texture {rel} ({e})"));
+                        return None;
+                    }
+                    session.written_textures.insert(tex.key.clone());
+                }
+                Some(rel)
+            };
+            let base_color_texture = texture_path(&data.base_color_texture);
+            let normal_texture = texture_path(&data.normal_texture);
+            let [er, eg, eb] = data.emissive;
+            let s = data.emissive_strength;
+            events.push(PbrMaterialExtracted {
+                name: name.clone(),
+                output_dir: project.join(&folder).join("materials"),
+                project_root: project.to_path_buf(),
+                base_color: data.base_color,
+                metallic: data.metallic,
+                roughness: data.roughness,
+                emissive: [er * s, eg * s, eb * s],
+                base_color_texture,
+                normal_texture,
+                metallic_roughness_texture: None,
+                roughness_texture: None,
+                metallic_texture: None,
+                emissive_texture: None,
+                occlusion_texture: None,
+                specular_glossiness_texture: None,
+                opacity_texture: None,
+                specular_texture: None,
+                advanced: PbrAdvanced::default(),
+                alpha_mode: if data.blend { PbrAlphaMode::Blend } else { PbrAlphaMode::Opaque },
+                alpha_cutoff: 0.5,
+                double_sided: data.double_sided,
+            });
+            session.written_materials.insert(name.clone(), version);
+        }
+    }
+    for event in events {
+        // The writer runs inside `trigger`.
+        world.trigger(event);
+    }
 }
 
 /// Write `<base>.<extension>` under the project, and remove the same object's
