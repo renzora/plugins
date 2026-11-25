@@ -1,10 +1,11 @@
-//! Writes a linked object as a binary glTF, which is how it is saved.
+//! Writes a linked object as a binary glTF, the first step of saving it.
 //!
 //! The scene stores a model as `MeshInstanceData { model_path }`, a file the
-//! engine loads on scene load, in Play and in an exported game. So a linked
-//! object is baked into exactly that: one `.glb` per object, in the object's
-//! own space (the entity's `Transform` carries where it is), with its
-//! materials and their textures embedded.
+//! engine loads on scene load, in Play and in an exported game. A linked
+//! object is written as a GLB in its own space (the entity's `Transform`
+//! carries where it is), with its materials and their textures embedded, and
+//! the engine's `renzora::build_model_file` turns that into the `.rvg` model
+//! file an import would store. Without the builder, the GLB is kept.
 //!
 //! Written here rather than by Blender's own glTF exporter because the editor
 //! already holds every vertex: re-exporting from Blender on each edit would
@@ -88,7 +89,7 @@ impl Builder {
     }
 }
 
-/// The `.glb` bytes for one object.
+/// The GLB bytes for one object.
 pub fn write(name: &str, mesh: &MeshData, materials: &HashMap<String, MaterialData>) -> Vec<u8> {
     let mut b = Builder::default();
     let mut images: Vec<Value> = Vec::new();

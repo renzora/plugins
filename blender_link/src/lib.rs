@@ -3,7 +3,7 @@
 //! Work in Blender and the editor follows: objects, their meshes with every
 //! modifier applied, materials (Principled BSDF factors, base colour and
 //! normal textures) and lights arrive as you change them, and are saved into
-//! the project as one `.glb` per object, so the scene works with Blender
+//! the project as one `.rvg` model per object, so the scene works with Blender
 //! closed, in Play, and in an exported game.
 //!
 //! Blender runs the add-on in `addon/renzora_live_link.py`, which this plugin
@@ -17,7 +17,7 @@
 //! |---|---|
 //! | [`server`] | the listener and its threads, and the frame format |
 //! | [`protocol`] | each message decoded from its header and payload |
-//! | [`apply`] | messages turned into entities, and the baking into `.glb` |
+//! | [`apply`] | messages turned into entities, and the baking into `.rvg` |
 //! | [`glb`] | the binary glTF writer |
 //! | [`install`] | installs the add-on into Blender and enables it |
 
@@ -130,5 +130,5 @@ fn status_segments(world: &World) -> Vec<ShellStatusSegment> {
 
 // Editor scope: the link edits the open scene and writes into the project,
 // neither of which a shipped game has, and a game has no business opening a
-// port that accepts geometry. The baked `.glb` files are what reach the game.
+// port that accepts geometry. The baked model files are what reach the game.
 renzora::plugin!(BlenderLinkPlugin);

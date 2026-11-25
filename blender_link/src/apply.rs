@@ -10,16 +10,17 @@
 //! `Transform` and [`BlenderLink`], plus, by kind:
 //!
 //! - **mesh**: unnamed child entities, one per material ("parts"), drawing the
-//!   live geometry, and `MeshInstanceData` pointing at the object's baked
-//!   `.glb`. The parts have no `Name`, so the scene never saves them; what it
-//!   saves is the `MeshInstanceData`, and a scene opened without Blender (or in
-//!   Play, or in an exported game) loads the `.glb` instead.
+//!   live geometry, and `MeshInstanceData` pointing at the object's model
+//!   file: an `.rvg` (scene and virtual geometry in one file), as an import
+//!   stores a model. The parts have no `Name`, so the scene never saves them;
+//!   what it saves is the `MeshInstanceData`, and a scene opened without
+//!   Blender (or in Play, or in an exported game) loads the model file instead.
 //! - **light**: the Bevy light component itself, which saves as it is.
 //! - **empty**: nothing more.
 //!
 //! When Blender connects to a scene that already has its objects (baked on an
 //! earlier day), they are found by [`BlenderLink`] and taken over: the model
-//! the engine loaded from the `.glb` is removed and live parts replace it.
+//! the engine loaded from the file is removed and live parts replace it.
 //!
 //! Nothing here goes on the undo stack. Blender is the source of truth for
 //! these objects, and Ctrl+Z in the editor undoing a Blender edit would only
@@ -86,8 +87,10 @@ pub struct Session {
     images: HashMap<(String, bool), Handle<Image>>,
     /// Objects waiting to be baked, and when they last changed.
     pending: HashMap<String, Instant>,
+    /// Model files being written in the background, by object.
+    baking: HashMap<String, (Entity, bevy::tasks::Task<Result<String, String>>)>,
     /// Objects drawing live geometry: a model the engine loads for them from
-    /// the `.glb` is removed when it arrives.
+    /// the model file is removed when it arrives.
     pub live: HashSet<String>,
     warned_no_project: bool,
 }
@@ -149,6 +152,7 @@ pub fn pump(world: &mut World) {
         }
     }
     bake_due(world, false);
+    finish_bakes(world);
 }
 
 fn handle(world: &mut World, header: &Value, payload: &[u8]) -> Result<(), String> {
@@ -327,7 +331,7 @@ fn rename(world: &mut World, header: &Value) -> Result<(), String> {
 }
 
 /// Despawn an object's live parts, and the model the engine loaded for it
-/// from a `.glb`, leaving any child the user added themselves.
+/// from its model file, leaving any child the user added themselves.
 fn clear_parts(world: &mut World, entity: Entity) {
     let Some(children) = world.get::<Children>(entity) else {
         return;
@@ -505,7 +509,7 @@ fn material(world: &mut World, header: &Value, payload: &[u8]) -> Result<(), Str
             *m = fresh;
         }
     }
-    // Every object drawing with it is baked again, since the `.glb` carries
+    // Every object drawing with it is baked again, since the model file carries
     // its materials.
     let mut session = world.resource_mut::<Session>();
     let users: Vec<String> = session
@@ -655,53 +659,120 @@ fn bake_due(world: &mut World, now: bool) {
         return;
     };
     for name in due {
-        world.resource_mut::<Session>().pending.remove(&name);
-        if let Err(why) = bake(world, &root, &name) {
-            console_warn(CATEGORY, format!("Blender link: could not save {name} ({why})"));
+        // One bake per object at a time: a newer change waits in `pending`
+        // until the one writing its file has finished, so two never write
+        // the same file at once.
+        if world.resource::<Session>().baking.contains_key(&name) {
+            continue;
         }
+        world.resource_mut::<Session>().pending.remove(&name);
+        start_bake(world, &root, &name);
     }
 }
 
-fn bake(world: &mut World, project: &std::path::Path, name: &str) -> Result<(), String> {
+/// Start writing one object's model file in the background.
+///
+/// Stored as an `.rvg`, the engine's model file (the scene and its virtual
+/// geometry in one file), exactly as an import stores a model. Building one
+/// can take seconds for a dense mesh, hence the background. When the builder
+/// is not available or refuses the geometry, the object is kept as a `.glb`,
+/// which loads as a model just the same, as an import does.
+fn start_bake(world: &mut World, project: &std::path::Path, name: &str) {
     let session = world.resource::<Session>();
     let Some(entity) = session.objects.get(name).copied() else {
-        return Ok(());
+        return;
     };
     let Some(mesh) = session.meshes.get(name) else {
-        return Ok(());
+        return;
     };
     if mesh.primitives.iter().all(|p| p.indices.is_empty()) {
         // Nothing to draw: no file, and no reference to one, or the engine
         // would load an empty model in Play.
         world.entity_mut(entity).remove::<MeshInstanceData>();
-        return Ok(());
+        return;
     }
-    let bytes = glb::write(name, mesh, &session.materials);
+    let glb = glb::write(name, mesh, &session.materials);
     let stem = file_safe(session.file.trim_end_matches(".blend"));
-    let rel = format!("blender/{stem}/{}.glb", file_safe(name));
+    let base = format!("blender/{stem}/{}", file_safe(name));
+    let project = project.to_path_buf();
+    let task = bevy::tasks::AsyncComputeTaskPool::get().spawn(async move {
+        let (bytes, extension) = match renzora::build_model_file(&glb) {
+            Some(Ok(rvg)) => (rvg, "rvg"),
+            _ => (glb, "glb"),
+        };
+        write_model(&project, &base, &bytes, extension)
+    });
+    world
+        .resource_mut::<Session>()
+        .baking
+        .insert(name.to_string(), (entity, task));
+}
+
+/// Write `<base>.<extension>` under the project, and remove the same object's
+/// file in the other format, so the project never holds an old `.glb` and a
+/// new `.rvg` (or the reverse) for one object. Returns the path written,
+/// relative to the project.
+fn write_model(project: &std::path::Path, base: &str, bytes: &[u8], extension: &str) -> Result<String, String> {
+    let rel = format!("{base}.{extension}");
     let path: PathBuf = project.join(&rel);
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
+    // The other format goes first. An old `.glb` left in place would have
+    // the engine build an `.rvg` of virtual geometry for it, under the very
+    // name this object's `.rvg` model has.
+    let other = if extension == "rvg" { "glb" } else { "rvg" };
+    let _ = std::fs::remove_file(project.join(format!("{base}.{other}")));
     // Through a temporary file, so Play or a scene load reading it mid-write
     // sees the old model or the new one, never half of one.
-    let tmp = path.with_extension("glb.tmp");
-    std::fs::write(&tmp, &bytes).map_err(|e| e.to_string())?;
+    let tmp = path.with_extension(format!("{extension}.tmp"));
+    std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
-
-    let wanted = Some(rel);
-    let Ok(mut e) = world.get_entity_mut(entity) else {
-        return Ok(());
-    };
-    if e.get::<MeshInstanceData>().map(|m| &m.model_path) != Some(&wanted) {
-        // The parts are already its children, so the engine's model loader,
-        // which only fills an instance with none, leaves it alone.
-        e.insert(MeshInstanceData { model_path: wanted });
-    }
-    Ok(())
+    Ok(rel)
 }
 
-/// Remove a model the engine loaded from a `.glb` for an object that is
+/// Point each object whose model file finished writing at it.
+fn finish_bakes(world: &mut World) {
+    let finished: Vec<(String, Entity, Result<String, String>)> = {
+        let mut session = world.resource_mut::<Session>();
+        if session.baking.is_empty() {
+            return;
+        }
+        let done: Vec<String> = session
+            .baking
+            .iter()
+            .filter(|(_, (_, task))| task.is_finished())
+            .map(|(name, _)| name.clone())
+            .collect();
+        done.into_iter()
+            .filter_map(|name| {
+                let (entity, task) = session.baking.remove(&name)?;
+                let result = bevy::tasks::block_on(task);
+                Some((name, entity, result))
+            })
+            .collect()
+    };
+    for (name, entity, result) in finished {
+        let rel = match result {
+            Ok(rel) => rel,
+            Err(why) => {
+                console_warn(CATEGORY, format!("Blender link: could not save {name} ({why})"));
+                continue;
+            }
+        };
+        let wanted = Some(rel);
+        let Ok(mut e) = world.get_entity_mut(entity) else {
+            continue;
+        };
+        if e.get::<MeshInstanceData>().map(|m| &m.model_path) != Some(&wanted) {
+            // The parts are already its children, so the engine's model
+            // loader, which only fills an instance with none, leaves it alone.
+            e.insert(MeshInstanceData { model_path: wanted });
+        }
+    }
+}
+
+/// Remove a model the engine loaded from its file for an object that is
 /// drawing live geometry: a scene loaded with linked objects starts loading
 /// their files before Blender connects, and the load can land after the live
 /// parts have.

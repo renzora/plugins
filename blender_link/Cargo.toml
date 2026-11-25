@@ -19,6 +19,8 @@ category = "plugins"
 name = "Blender Live Link"
 tags = ["editor", "blender", "live-link", "import", "workflow"]
 price_credits = 0
+# Also needs `renzora::build_model_file`, which is newer than the last
+# r1-alpha8 nightly: retarget the tag below to the nightly carrying it.
 min_engine_version = "r1-alpha8"
 
 [lib]

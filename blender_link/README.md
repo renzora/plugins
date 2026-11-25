@@ -50,13 +50,16 @@ dragging a vertex in Edit Mode streams.
 
 ## Saving
 
-Each mesh object is written to `blender/<file>/<object>.glb` in the project,
+Each mesh object is written to `blender/<file>/<object>.rvg` in the project,
 400 ms after its geometry or materials stop changing (and at once when
-Blender disconnects). The entity's `MeshInstanceData` points at that file, so
-saving the scene saves the object like any imported model. Lights save as
-their components.
+Blender disconnects). That is the same model file an import stores: the
+model and its virtual geometry in one file, built in the background by the
+engine's `renzora::build_model_file`. In a build without that builder the
+object is kept as a `.glb` instead, which loads the same way. The entity's
+`MeshInstanceData` points at the file, so saving the scene saves the object
+like any imported model. Lights save as their components.
 
-Opening the scene later loads the `.glb` files. Connecting Blender again
+Opening the scene later loads the model files. Connecting Blender again
 finds the objects by name and takes them over, so nothing is duplicated.
 
 ## Limits
@@ -72,7 +75,7 @@ finds the objects by name and takes them over, so nothing is duplicated.
   maps) are not linked yet.
 - **Not linked:** collection instances, particle systems, shape key
   animation, and cameras' lens settings.
-- A deleted object's `.glb` is left in the project, because a saved scene may
+- A deleted object's model file is left in the project, because a saved scene may
   still point at it. Delete the files in `blender/` yourself once nothing uses
   them.
 - The link listens on loopback only. Set `RENZORA_BLENDER_PORT` before
