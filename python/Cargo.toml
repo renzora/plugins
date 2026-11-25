@@ -1,0 +1,83 @@
+# Native plugin, shipped as source: the Renzora editor (and `cargo renzora`)
+# compiles it against the engine it is installed in, not against wherever the
+# `bevy` and `renzora` entries below point. They point rust-analyzer at the
+# engine repository at an engine tag, which cargo clones once per machine; bump
+# the tag to match the engine you target. Keep the `bevy` entry all the same:
+# Bevy's derive macros look for it by name. `cargo build` here is refused by
+# `renzora::plugin!` with an explanation, because it would build a second Bevy.
+[workspace]
+
+[package]
+name = "python"
+version = "1.0.0"
+edition = "2021"
+description = "Python scripting for Renzora, on the RustPython interpreter. Nothing to install: the interpreter is compiled into the plugin."
+
+# Read by the lean exporter, matched as a substring of the Rust target triple.
+#
+# Unlike Lua (whose C source has no libc to compile against on the web), the
+# interpreter here is pure Rust and could in principle build for
+# wasm32-unknown-unknown. It has never been tried there: RustPython reaches the
+# clock and the random source through `std`, which that target stubs out, so a
+# web build needs work this plugin has not had. Excluded until it does.
+[package.metadata.renzora]
+unsupported-targets = ["wasm32"]
+marketplace_id = "python"
+category = "plugins"
+name = "Python"
+tags = ["scripting", "python", "language"]
+price_credits = 0
+# It implements `renzora::ScriptBackend`, which only reached the contract crate
+# (and therefore the plugin SDK) in r1-alpha8.
+min_engine_version = "r1-alpha8"
+
+# `dylib`, not `cdylib`. A native plugin links the real Bevy and the real engine
+# crates, so the backend is an ordinary Rust trait impl rather than a function
+# table behind an `extern "C"` entry point.
+[lib]
+crate-type = ["dylib"]
+
+# One dependency per line: the plugin builder copies these lines verbatim into a
+# separate deps-only manifest, and refuses a `[dependencies.foo]` sub-table.
+[dependencies]
+bevy = { git = "https://github.com/renzora/engine", tag = "r1-alpha8-nightly-23nov26" }
+# The shared types a backend deals in: `ScriptCommand`, `DrawCmd`, `Binding`,
+# the `ScriptBackend` trait and the `get_handler` reads. See the Lua plugin for
+# why `renzora` alone is enough.
+renzora = { git = "https://github.com/renzora/engine", tag = "r1-alpha8-nightly-23nov26", package = "renzora_sdk" }
+
+# The interpreter: RustPython 0.4, pinned exactly.
+#
+# Not 0.6 (the newest), for three reasons found by building it, any one of
+# which would be enough:
+# * Its parser is a fork of ruff, which depends on `compact_str`, whose
+#   manifest names `bevy_reflect` as an optional dependency. The plugin builder
+#   refuses any dependency graph that so much as mentions a Bevy crate (it reads
+#   `cargo metadata`, which lists optional dependencies too), so 0.6 cannot be
+#   installed at all.
+# * On Windows it does not compile without its `ctypes` support, which needs
+#   libffi, which is C.
+# * A fresh resolve of 0.6 mixes parser-fork versions whose APIs no longer
+#   match, and its standard library mixes two big-integer crates.
+# 0.4 has none of these, and its whole dependency tree is Rust: installing this
+# plugin needs no C compiler, no assembler and no system library.
+#
+# Features:
+# * `compiler`: scripts arrive as source text, so the parser and bytecode
+#   compiler must be in.
+# * NOT `threading`: that puts every Python object on `Arc` and every
+#   container behind a lock, so it can cross threads. Nothing here ever crosses
+#   one. Each thread has its own interpreter (see `runtime`), the backend the
+#   engine stores holds no Python object at all, and without `threading`
+#   RustPython keeps its type objects per thread too, which is the same shape.
+#   Plain `Rc` and `RefCell` are what make a hook call cheap.
+# * `freeze-stdlib`: the pure-Python half of the standard library (`json`,
+#   `collections`, `re`, `functools`, `enum`, `typing`, `datetime`, ...)
+#   compiled to bytecode at build time and embedded, so `import json` works with
+#   no Lib/ folder on disk. That is what "nothing to install" requires of an
+#   exported game, which has no Python anywhere near it.
+rustpython-vm = { version = "=0.4.0", default-features = false, features = ["compiler", "freeze-stdlib"] }
+rustpython-pylib = { version = "=0.4.0", features = ["freeze-stdlib"] }
+
+# `json_parse` / `json_encode`, the same crate the Lua plugin uses for them.
+serde_json = "1"

@@ -1,0 +1,47 @@
+# Native plugin, shipped as source: the Renzora editor (and `cargo renzora`)
+# compiles it against the engine it is installed in, not against wherever the
+# `bevy` and `renzora` entries below point. They point rust-analyzer at the
+# engine repository at an engine tag, which cargo clones once per machine; bump
+# the tag to match the engine you target. Keep the `bevy` entry all the same:
+# Bevy's derive macros look for it by name. `cargo build` here is refused by
+# `renzora::plugin!` with an explanation, because it would build a second Bevy.
+[workspace]
+
+[package]
+name = "mongodb_plugin"
+version = "1.0.0"
+edition = "2021"
+description = "Connect a game to MongoDB: run queries from scripts, spawn and save entities from documents, and keep save slots in the database."
+
+# MongoDB is reached over TCP, which a browser tab does not have.
+[package.metadata.renzora]
+unsupported-targets = ["wasm32"]
+marketplace_id = "mongodb_plugin"
+category = "plugins"
+name = "MongoDB"
+tags = ["database", "mongodb", "nosql", "saves", "storage", "runtime"]
+price_credits = 0
+# Needs `renzora::save::SaveBackend` and the Rust scripts' `ScriptHook::Event`;
+# publish once a nightly carries both and set this to it.
+min_engine_version = "r1-alpha8"
+
+[lib]
+crate-type = ["dylib"]
+
+[dependencies]
+bevy = { git = "https://github.com/renzora/engine", tag = "r1-alpha8-nightly-23nov26" }
+renzora = { git = "https://github.com/renzora/engine", tag = "r1-alpha8-nightly-23nov26", package = "renzora_sdk" }
+
+# The official driver, synchronous API. It insists on a TLS backend; rustls
+# with `ring` is the lightest (no OpenSSL, no cmake), and `ring` compiles a
+# little C, which the MSVC build tools Rust's Windows install sets up already
+# cover. TLS is also what MongoDB Atlas needs. `compat-3-0-0` pins bson 2.
+mongodb = { version = "3", default-features = false, features = ["sync", "compat-3-0-0", "rustls-tls"] }
+# The driver's sync mode runs on a multi-threaded tokio runtime that its default
+# features would have enabled.
+tokio = { version = "1", features = ["rt-multi-thread"] }
+# The driver's own JSON, for Extended JSON in and out of bson. Separate from
+# `renzora::serde_json`; the two meet only as text.
+serde_json = "1"
+# For `mongodb.toml`, read into toml's own table type.
+toml = "0.8"

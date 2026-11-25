@@ -1,0 +1,85 @@
+# Native plugin, shipped as source: the Renzora editor (and `cargo renzora`)
+# compiles it against the engine it is installed in, not against wherever the
+# `bevy` and `renzora` entries below point. They point rust-analyzer at the
+# engine repository at an engine tag, which cargo clones once per machine; bump
+# the tag to match the engine you target. Keep the `bevy` entry all the same:
+# Bevy's derive macros look for it by name. `cargo build` here is refused by
+# `renzora::plugin!` with an explanation, because it would build a second Bevy.
+[workspace]
+
+[package]
+name = "javascript"
+version = "1.0.0"
+edition = "2021"
+description = "JavaScript and TypeScript scripting for Renzora, on the Boa engine. Nothing to install: the interpreter and the TypeScript compiler are compiled into the plugin."
+
+# Read by the lean exporter, matched as a substring of the Rust target triple.
+#
+# Boa and oxc are pure Rust and could in principle build for
+# wasm32-unknown-unknown, but only through Boa's `js` feature (a clock and a
+# random source from the browser, via wasm-bindgen), which this plugin does not
+# enable and has never been tried with. Excluded until it has.
+[package.metadata.renzora]
+unsupported-targets = ["wasm32"]
+marketplace_id = "javascript"
+category = "plugins"
+name = "JavaScript"
+tags = ["scripting", "javascript", "typescript", "language"]
+price_credits = 0
+# It implements `renzora::ScriptBackend`, which only reached the contract crate
+# (and therefore the plugin SDK) in r1-alpha8.
+min_engine_version = "r1-alpha8"
+
+# `dylib`, not `cdylib`. A native plugin links the real Bevy and the real engine
+# crates, so the backend is an ordinary Rust trait impl rather than a function
+# table behind an `extern "C"` entry point.
+[lib]
+crate-type = ["dylib"]
+
+# One dependency per line: the plugin builder copies these lines verbatim into a
+# separate deps-only manifest, and refuses a `[dependencies.foo]` sub-table.
+[dependencies]
+bevy = { git = "https://github.com/renzora/engine", tag = "r1-alpha8-nightly-23nov26" }
+# The shared types a backend deals in: `ScriptCommand`, `DrawCmd`, `Binding`,
+# the `ScriptBackend` trait and the `get_handler` reads. See the Lua plugin for
+# why `renzora` alone is enough.
+renzora = { git = "https://github.com/renzora/engine", tag = "r1-alpha8-nightly-23nov26", package = "renzora_sdk" }
+
+# The interpreter: Boa 0.22, the newest release, pinned exactly. Its whole
+# dependency tree is Rust (no `cc`, no `cmake`, no system library), so
+# installing this plugin needs no C compiler.
+#
+# Features, with the defaults off:
+# * `annex-b`: the web-compatibility annex every browser and Node implement:
+#   `String.prototype.substr`, `escape`, `__proto__` in object literals, HTML
+#   comments. Scripts written against "JavaScript as it runs everywhere" use
+#   these without knowing they are optional.
+# * `float16`, `xsum`: two of the three defaults, `Math.f16round` and an exact
+#   `Math.sumPrecise`. Small, pure Rust.
+# * NOT `temporal` (the third default): the Temporal proposal, whose time zone
+#   support reads the operating system's zone database off disk. Date works
+#   without it.
+# * NOT `intl`: the ICU data for `Intl` adds megabytes to every exported game.
+boa_engine = { version = "=0.22.0", default-features = false, features = ["annex-b", "float16", "xsum"] }
+
+# TypeScript: oxc parses `.ts`, strips the types (and lowers `enum` and
+# `namespace`, which have runtime meaning), and prints plain JavaScript for Boa.
+# It never type-checks; that is the editor's job, against `renzora.d.ts`.
+#
+# Pinned to 0.140, not 0.160 (the newest), for the reason RustPython is pinned
+# in the Python plugin: from 0.141 oxc's string crate depends on `compact_str`
+# 0.10, whose manifest names `bevy_reflect` as an optional dependency, and the
+# plugin builder refuses any dependency graph that so much as mentions a Bevy
+# crate (it reads `cargo metadata`, which lists optional dependencies too). 0.140
+# is the last release on `compact_str` 0.9, which does not. The oxc crates
+# require each other at `^0.140.0`, so a fresh resolve stays on 0.140.x.
+oxc_allocator = "=0.140.0"
+oxc_parser = "=0.140.0"
+oxc_semantic = "=0.140.0"
+oxc_span = "=0.140.0"
+oxc_ast = "=0.140.0"
+oxc_transformer = "=0.140.0"
+oxc_codegen = "=0.140.0"
+
+# `json_parse` / `json_encode`, the same crate the Lua and Python plugins use.
+serde_json = "1"

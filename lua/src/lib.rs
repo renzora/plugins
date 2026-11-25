@@ -30,7 +30,7 @@
 //! [`Backend`]: renzora::ScriptBackend
 
 use bevy::prelude::*;
-use renzora::{AppScriptBackendExt, CreateMenuItem, RegisterCreateMenuItem};
+use renzora::{AppCodeSyntaxExt, AppScriptBackendExt, CodeSyntax, CreateMenuItem, RegisterCreateMenuItem};
 
 mod buffers;
 mod interp;
@@ -50,6 +50,20 @@ pub struct LuaPlugin;
 impl Plugin for LuaPlugin {
     fn build(&self, app: &mut App) {
         app.add_script_backend(interp::LuaBackend::default());
+        // Colouring for the code editor, which knows a language a plugin brings
+        // only from the plugin's description of it. `[[ ]]` long strings are
+        // not described: the editor closes a string on the delimiter that
+        // opened it, and Lua's long brackets differ.
+        app.add_code_syntax(CodeSyntax {
+            keywords: &[
+                "and", "break", "do", "else", "elseif", "end", "false", "for", "function",
+                "goto", "if", "in", "local", "nil", "not", "or", "repeat", "return", "then",
+                "true", "until", "while", "self",
+            ],
+            line_comment: Some("--"),
+            block_comment: Some(("--[[", "]]")),
+            ..CodeSyntax::new("Lua", &["lua"])
+        });
         // The Assets panel's Add menu and the hierarchy's Attach submenu. Both
         // used to offer **Lua Script** unconditionally, because the entry was a
         // variant of an editor enum rather than something the interpreter

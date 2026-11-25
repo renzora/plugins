@@ -1,0 +1,45 @@
+# Native plugin, shipped as source: the Renzora editor (and `cargo renzora`)
+# compiles it against the engine it is installed in, not against wherever the
+# `bevy` and `renzora` entries below point. They point rust-analyzer at the
+# engine repository at an engine tag, which cargo clones once per machine; bump
+# the tag to match the engine you target. Keep the `bevy` entry all the same:
+# Bevy's derive macros look for it by name. `cargo build` here is refused by
+# `renzora::plugin!` with an explanation, because it would build a second Bevy.
+[workspace]
+
+[package]
+name = "mysql_plugin"
+version = "1.0.0"
+edition = "2021"
+description = "Connect a game to MySQL: run SQL from scripts, spawn and save entities from rows, and keep save slots in the database."
+
+# MySQL is reached over TCP, which a browser tab does not have.
+[package.metadata.renzora]
+unsupported-targets = ["wasm32"]
+marketplace_id = "mysql_plugin"
+category = "plugins"
+name = "MySQL"
+tags = ["database", "mysql", "sql", "saves", "storage", "runtime"]
+price_credits = 0
+# Implements `renzora::save::SaveBackend`, which reached the contract after the
+# r1-alpha8-nightly-23nov26 nightly. An engine without it fails this plugin's
+# build with "no `SaveBackend` in `save`", so publish once a nightly carries it.
+min_engine_version = "r1-alpha8"
+
+[lib]
+crate-type = ["dylib"]
+
+[dependencies]
+bevy = { git = "https://github.com/renzora/engine", tag = "r1-alpha8-nightly-23nov26" }
+# `renzora` alone: `renzora::save` and `CurrentProject` are both outside the
+# editor contract, which is what lets this ship in a game.
+renzora = { git = "https://github.com/renzora/engine", tag = "r1-alpha8-nightly-23nov26", package = "renzora_sdk" }
+
+# The MySQL client, pure Rust. `minimal-rust` is the compression backend
+# without zlib's C, so installing the plugin needs no C compiler. No TLS
+# feature: the server is local, and TLS would bring a C or assembly build of
+# its own.
+mysql = { version = "28", default-features = false, features = ["minimal-rust"] }
+# For `mysql.toml`. Read into toml's own table type, never derived: see
+# `config::parse` for why a serde derive would not meet it.
+toml = "0.8"

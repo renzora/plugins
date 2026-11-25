@@ -1,0 +1,28 @@
+# Copy to `mongodb.toml` beside the game's executable, or in the project folder
+# while developing. Every key is optional; these are the defaults.
+
+# The `default` connection. Atlas: "mongodb+srv://user:password@cluster0.xxxxx.mongodb.net/"
+url = "mongodb://127.0.0.1:27017"
+
+# The database calls use unless they name another.
+database = "renzora"
+
+# Keep the game's save slots in MongoDB. false leaves them in the save folder
+# while scripts can still query the database.
+saves = true
+
+# Let a networked client run the script functions. A client is the player's
+# machine, so this file (and its password) would ship to every player: keep it
+# false, run database calls on the server, and ship this file with the server
+# only. Single-player and servers are never refused.
+allow_clients = false
+
+# The collection save slots go in, keyed by the game's name and the slot.
+collection = "renzora_saves"
+
+# A call waits this long at most to reach the server, then fails with a reason.
+connect_timeout_secs = 2
+
+# More servers a script can name with its `connection` argument.
+# [connections]
+# stats = "mongodb://reader:secret@127.0.0.1:27018"
