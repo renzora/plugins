@@ -549,7 +549,8 @@ fn queue_import(world: &mut World, args: &Value) -> Result<Queued, String> {
             .extension()
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default();
-        if !models.contains(&ext.as_str()) {
+        // A format a plugin taught the importer counts too.
+        if !models.contains(&ext.as_str()) && renzora::import_format_for(&ext).is_none() {
             return Err(format!(".{ext} is not a model format the importer reads"));
         }
         sources.push(source);

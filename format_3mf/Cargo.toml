@@ -1,0 +1,36 @@
+# Native plugin, shipped as source: the Renzora editor (and `cargo renzora`)
+# compiles it against the engine it is installed in, not against wherever the
+# `bevy` and `renzora` entries below point. They point rust-analyzer at the
+# engine repository at an engine tag, which cargo clones once per machine; bump
+# the tag to match the engine you target. Keep the `bevy` entry all the same:
+# Bevy's derive macros look for it by name. `cargo build` here is refused by
+# `renzora::plugin!` with an explanation, because it would build a second Bevy.
+[workspace]
+
+[package]
+name = "format_3mf"
+version = "1.0.0"
+edition = "2021"
+description = "Import 3MF (3D Manufacturing Format) models: the 3D-printing format of PrusaSlicer, Cura, Bambu Studio and Windows 3D Builder. Objects, components, build placement, units, base materials and colours."
+
+[package.metadata.renzora]
+marketplace_id = "format_3mf"
+category = "plugins"
+name = "3MF Import"
+tags = ["import", "3mf", "3d-printing", "format", "editor"]
+price_credits = 0
+# Needs `renzora::register_import_format`, which is newer than the last
+# r1-alpha8 nightly: retarget the tag below to the nightly carrying it.
+min_engine_version = "r1-alpha8"
+
+[lib]
+crate-type = ["dylib"]
+
+[dependencies]
+bevy = { git = "https://github.com/renzora/engine", tag = "r1-alpha8-nightly-23nov26" }
+renzora = { git = "https://github.com/renzora/engine", tag = "r1-alpha8-nightly-23nov26", package = "renzora_sdk", default-features = false, features = ["editor"] }
+# A 3MF is a zip of XML. Deflate only (pure Rust through miniz_oxide): the
+# zip crate's other codecs compile C, and a plugin builds on the installing
+# machine with no C compiler assumed.
+zip = { version = "2", default-features = false, features = ["deflate"] }
+quick-xml = "0.37"
