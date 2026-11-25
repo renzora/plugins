@@ -1,0 +1,56 @@
+# Native plugin, shipped as source: the Renzora editor (and `cargo renzora`)
+# compiles it against the engine it is installed in, not against wherever the
+# `bevy` and `renzora` entries below point. They point rust-analyzer at the
+# engine repository at an engine tag, which cargo clones once per machine; bump
+# the tag to match the engine you target. Keep the `bevy` entry all the same:
+# Bevy's derive macros look for it by name. `cargo build` here is refused by
+# `renzora::plugin!` with an explanation, because it would build a second Bevy.
+[workspace]
+
+[package]
+name = "csharp"
+version = "1.0.0"
+edition = "2021"
+description = "C# scripting for Renzora, on .NET 10, with NuGet packages. Requires the .NET 10 SDK to edit and build scripts; exported games bundle the runtime, so players install nothing."
+
+# Read by the lean exporter, matched as a substring of the Rust target triple.
+#
+# The plugin hosts the machine's own .NET runtime through `hostfxr`, which a
+# browser tab has no way to load, and the mobile targets have no installable
+# .NET runtime for it to find. Desktop only.
+[package.metadata.renzora]
+unsupported-targets = ["wasm32", "android", "ios"]
+marketplace_id = "csharp"
+category = "plugins"
+name = "C# Scripting"
+tags = ["scripting", "csharp", "dotnet", "language"]
+price_credits = 0
+# It implements `renzora::ScriptBackend`, which only reached the contract crate
+# (and therefore the plugin SDK) in r1-alpha8.
+min_engine_version = "r1-alpha8"
+
+# `dylib`, not `cdylib`. A native plugin links the real Bevy and the real engine
+# crates, so the backend is an ordinary Rust trait impl rather than a function
+# table behind an `extern "C"` entry point. (The C# side does have such a table,
+# in both directions: see `src/abi.rs`. That one is between this plugin and the
+# .NET runtime it hosts, not between the plugin and the engine.)
+[lib]
+crate-type = ["dylib"]
+
+# One dependency per line: the plugin builder copies these lines verbatim into a
+# separate deps-only manifest, and refuses a `[dependencies.foo]` sub-table.
+[dependencies]
+bevy = { git = "https://github.com/renzora/engine", tag = "r1-alpha8-nightly-23nov26" }
+# The shared types a backend deals in: `ScriptCommand`, `DrawCmd`, `Binding`,
+# the `ScriptBackend` trait and the `get_handler` reads, plus `serde_json`,
+# which the contract crate re-exports so this plugin compiles no second copy.
+renzora = { git = "https://github.com/renzora/engine", tag = "r1-alpha8-nightly-23nov26", package = "renzora_sdk" }
+
+# Opens `hostfxr`, the .NET host resolver, from the machine's .NET install at
+# run time. Pure Rust over `LoadLibraryW` / `dlopen`, so installing the plugin
+# needs no C compiler and links nothing from .NET at build time: a machine
+# without .NET still installs and loads the plugin, and its C# scripts report
+# what to install instead. (`netcorehost` and `nethost` were ruled out because
+# they download or link Microsoft's prebuilt C++ `nethost` library when the
+# plugin is compiled.)
+libloading = "0.8"

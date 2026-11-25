@@ -1,0 +1,39 @@
+<!--
+  The C# half of the C# Scripting plugin: the API scripts derive from, and the
+  bridge the plugin's Rust half calls into. Shipped as source and built on the
+  user's machine by the plugin itself (`dotnet build -c Release`), the first
+  time a project with C# scripts needs it.
+
+  No PackageReference, deliberately: everything here is in the shared
+  framework (System.Text.Json, System.Reflection.Metadata), so building it needs
+  no network and no NuGet cache, only the .NET 10 SDK.
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Renzora.Scripting</AssemblyName>
+    <RootNamespace>Renzora</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>14</LangVersion>
+    <!-- Writes the runtimeconfig.json a native host starts the runtime from,
+         which a class library otherwise does not get. -->
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <!-- .NET 10 (the long-term-support release), or any newer major version
+         when 10 is not installed: nothing here depends on a version-specific
+         behaviour. -->
+    <RollForward>LatestMajor</RollForward>
+    <Deterministic>true</Deterministic>
+    <DebugType>portable</DebugType>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- The XML docs reach a script author's IDE through the generated
+         scripts project. Not every public member needs a summary to be clear,
+         so a missing one is not a warning. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>
