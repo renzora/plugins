@@ -1,0 +1,36 @@
+# Native plugin, shipped as source: the Renzora editor (and `cargo renzora`)
+# compiles it against the engine it is installed in, not against wherever the
+# `bevy` and `renzora` entries below point. They point rust-analyzer at the
+# engine repository at an engine tag, which cargo clones once per machine; bump
+# the tag to match the engine you target. Keep the `bevy` entry all the same:
+# Bevy's derive macros look for it by name. `cargo build` here is refused by
+# `renzora::plugin!` with an explanation, because it would build a second Bevy.
+[workspace]
+
+[package]
+name = "blender_link"
+version = "1.0.0"
+edition = "2021"
+description = "Live link from Blender: objects, meshes with their modifiers, materials and lights update in the editor as you work in Blender, and are saved into the project as models. Installing this plugin also installs its Blender add-on into every Blender 4.2+ on this machine and enables it in Blender's preferences; the add-on's source is public, in this plugin's addon folder."
+
+[package.metadata.renzora]
+marketplace_id = "blender_link"
+category = "plugins"
+name = "Blender Live Link"
+tags = ["editor", "blender", "live-link", "import", "workflow"]
+price_credits = 0
+min_engine_version = "r1-alpha8"
+
+[lib]
+crate-type = ["dylib"]
+
+[dependencies]
+bevy = { git = "https://github.com/renzora/engine", tag = "r1-alpha8-nightly-23nov26" }
+# `editor` for the status-bar item. JSON comes from this crate's `serde_json`
+# re-export, never a `serde_json` of our own: a privately resolved serde is a
+# different trait from the engine's.
+renzora = { git = "https://github.com/renzora/engine", tag = "r1-alpha8-nightly-23nov26", package = "renzora_sdk", default-features = false, features = ["editor", "ui"] }
+
+# No other dependencies. The wire format is a length-prefixed JSON header and
+# raw little-endian arrays, the GLB writer is a few hundred lines, and a plugin
+# that declares nothing from crates.io builds offline in about a second.
