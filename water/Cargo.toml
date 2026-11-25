@@ -9,7 +9,7 @@
 
 [package]
 name = "water"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "FFT ocean water: a GPU spectrum and inverse FFT drive a displaced surface mesh, with buoyancy for anything floating on it."
 
