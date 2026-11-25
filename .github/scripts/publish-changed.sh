@@ -20,9 +20,10 @@
 # ── What each plugin is compared against ────────────────────────────────────
 # The commit it was last published from, recorded as the tag
 # `published/<dir>` once its upload succeeds. A plugin with no such tag is
-# compared against `published`, the commit everything stood at when
-# publishing moved from push to release. `--base` overrides both, for asking
-# "what changed since X".
+# compared against `publish-baseline`, the commit everything stood at when
+# publishing moved from push to release. (Not `published`: git cannot hold a
+# tag of that name beside tags under `published/`.) `--base` overrides both,
+# for asking "what changed since X".
 #
 # Per plugin rather than one marker for the run, because a run can half
 # succeed: one plugin's upload fails and the others land. A single marker
@@ -90,7 +91,7 @@ base_for() {
     elif ref_exists "refs/tags/published/$dir"; then
         echo "published/$dir"
     else
-        echo "published"
+        echo "publish-baseline"
     fi
 }
 
@@ -98,10 +99,10 @@ if [ -n "$override" ] && ! ref_exists "$override"; then
     echo "::error::--base $override is not a commit"
     exit 1
 fi
-if [ -z "$override" ] && ! ref_exists "refs/tags/published"; then
+if [ -z "$override" ] && ! ref_exists "refs/tags/publish-baseline"; then
     # Without it, every plugin would look new and the whole catalogue would be
     # re-uploaded, failing on every version already published.
-    echo "::error::the tag \`published\` is missing, so there is nothing to compare against. Tag the last commit whose plugins are all on the marketplace."
+    echo "::error::the tag \`publish-baseline\` is missing, so there is nothing to compare against. Tag the last commit whose plugins are all on the marketplace."
     exit 1
 fi
 
