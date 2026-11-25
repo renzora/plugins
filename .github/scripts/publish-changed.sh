@@ -3,7 +3,14 @@
 # Publish the plugins whose version moved since they were last published
 # =============================================================================
 #
-# Usage: publish-changed.sh <head-ref> [--dry-run] [--base <ref>]
+# Usage: publish-changed.sh <head-ref> [--dry-run] [--base <ref>] [--stage <dir>]
+#
+# `--stage <dir>` publishes nothing: it writes into <dir> the plugin sources
+# the marketplace will list once this release is published. That is <head> for
+# every plugin, except one changed without a version bump, which is held back
+# at the commit it was last published from. The engine's release builds its
+# prebuilt binaries from that tree, so a binary labelled with a version holds
+# that version's code, and unreleased work stays unreleased.
 #
 # Run by `Publish` when an engine nightly or stable release asks for it, and by
 # `Dry run` to predict that. Pushing to `main` publishes nothing: a push is
@@ -45,15 +52,17 @@
 # change would spend a version number per commit.
 set -uo pipefail
 
-usage="usage: publish-changed.sh <head> [--dry-run] [--base <ref>]"
+usage="usage: publish-changed.sh <head> [--dry-run] [--base <ref>] [--stage <dir>]"
 head="${1:?$usage}"
 shift
 dry=""
 override=""
+stage=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --dry-run) dry="--dry-run" ;;
         --base) override="${2:?$usage}"; shift ;;
+        --stage) stage="${2:?$usage}"; shift ;;
         "") ;;
         *) echo "$usage" >&2; exit 2 ;;
     esac
@@ -107,6 +116,8 @@ if [ -z "$override" ] && ! ref_exists "refs/tags/publish-baseline"; then
 fi
 
 take=""
+# Changed but not bumped: `--stage` writes these at their base, not <head>.
+held=""
 for dir in */; do
     dir="${dir%/}"
     manifest=$(manifest_for "$dir") || continue
@@ -149,12 +160,28 @@ for dir in */; do
 
     if [ -n "$old" ] && [ "$old" = "$new" ]; then
         echo "  skip   $dir (changed since $base, still v$new: bump it to publish)"
+        held="$held $dir"
         continue
     fi
 
     echo "  take   $dir (${old:-new} -> v$new)"
     take="$take $dir"
 done
+
+if [ -n "$stage" ]; then
+    # Every plugin as it stands at <head>, then the held-back ones replaced
+    # by their base: the tree the marketplace lists after this release.
+    mkdir -p "$stage"
+    git archive "$head" | tar -x -C "$stage"
+    for dir in $held; do
+        base=$(base_for "$dir")
+        rm -rf "${stage:?}/$dir"
+        git archive "$base" -- "$dir" | tar -x -C "$stage"
+        echo "  staged $dir at $base (unreleased changes held back)"
+    done
+    echo "Staged the release's plugin sources in $stage"
+    exit 0
+fi
 
 if [ -z "$take" ]; then
     echo "No plugin's version moved since it was last published; nothing to publish."
