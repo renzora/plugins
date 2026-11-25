@@ -1,27 +1,42 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Publish the plugins whose version changed between two commits
+# Publish the plugins whose version moved since they were last published
 # =============================================================================
 #
-# Usage: publish-changed.sh <base-ref> <head-ref> [--dry-run]
+# Usage: publish-changed.sh <head-ref> [--dry-run] [--base <ref>]
 #
-# A file rather than inline YAML so it can be run by hand against any two
-# commits, which is the only way to be sure the selection is right before a
-# push depends on it:
+# Run by `Publish` when an engine nightly or stable release asks for it, and by
+# `Dry run` to predict that. Pushing to `main` publishes nothing: a push is
+# work in progress, and the release of the engine it was written against is
+# the release gesture for the plugins too, so a plugin never reaches the
+# marketplace before an engine that can build it.
 #
-#   .github/scripts/publish-changed.sh 5ae146d 72b3bfb --dry-run
+# A file rather than inline YAML so it can be run by hand, which is the only
+# way to be sure the selection is right before a release depends on it:
+#
+#   .github/scripts/publish-changed.sh HEAD --dry-run
+#   .github/scripts/publish-changed.sh HEAD --dry-run --base 5ae146d
+#
+# ── What each plugin is compared against ────────────────────────────────────
+# The commit it was last published from, recorded as the tag
+# `published/<dir>` once its upload succeeds. A plugin with no such tag is
+# compared against `published`, the commit everything stood at when
+# publishing moved from push to release. `--base` overrides both, for asking
+# "what changed since X".
+#
+# Per plugin rather than one marker for the run, because a run can half
+# succeed: one plugin's upload fails and the others land. A single marker
+# moved anyway would skip the failed one forever (its version no longer looks
+# new); a single marker left behind would retry the ones that landed, and a
+# published version can never be uploaded twice, so they would fail every run
+# after. Each plugin carrying its own marker retries exactly what failed.
 #
 # ── Why the selection happens here and not in `renzora publish --all` ────────
 # `--all` sweeps every directory claiming a `marketplace_id` and refuses the
 # WHOLE run if any one of them is unfit. A published version is never replaced,
 # so every plugin whose version has not moved is "already published" and
-# therefore unfit. One push changes one or two out of seventy-three, so `--all`
-# would abort on the other seventy-one and upload nothing.
-#
-# That batch rule is right for a first-time sweep — a broken manifest in the
-# sixtieth directory should not be found after fifty-nine listings exist — it
-# just cannot be a routine "publish what is new" command. So the diff decides,
-# and the CLI is only handed directories with something new to say.
+# therefore unfit. A release changes a few out of seventy-three, so `--all`
+# would abort on the rest and upload nothing.
 #
 # ── Why the VERSION and not the files ───────────────────────────────────────
 # The same rule crates.io uses. Bumping the version is the release gesture;
@@ -29,9 +44,20 @@
 # change would spend a version number per commit.
 set -uo pipefail
 
-base="${1:?usage: publish-changed.sh <base> <head> [--dry-run]}"
-head="${2:?usage: publish-changed.sh <base> <head> [--dry-run]}"
-dry="${3:-}"
+usage="usage: publish-changed.sh <head> [--dry-run] [--base <ref>]"
+head="${1:?$usage}"
+shift
+dry=""
+override=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --dry-run) dry="--dry-run" ;;
+        --base) override="${2:?$usage}"; shift ;;
+        "") ;;
+        *) echo "$usage" >&2; exit 2 ;;
+    esac
+    shift
+done
 
 # The first bare `version = "..."` in the manifest. `[workspace]` comes first in
 # these files and `[package]` second, and `[package.metadata.renzora]` has no
@@ -52,19 +78,44 @@ manifest_for() {
     return 1
 }
 
-if [ -n "$base" ]; then
-    changed=$(git diff --name-only "$base" "$head" | cut -d/ -f1 | sort -u)
-else
-    # No parent commit at all: every directory is a candidate and the version
-    # check below decides. Only reachable on a repository's first push.
-    changed=$(find . -maxdepth 1 -type d -not -name '.*' -printf '%f\n')
+ref_exists() {
+    git rev-parse --verify --quiet "$1^{commit}" >/dev/null
+}
+
+# What a plugin is compared against; see the header.
+base_for() {
+    local dir="$1"
+    if [ -n "$override" ]; then
+        echo "$override"
+    elif ref_exists "refs/tags/published/$dir"; then
+        echo "published/$dir"
+    else
+        echo "published"
+    fi
+}
+
+if [ -n "$override" ] && ! ref_exists "$override"; then
+    echo "::error::--base $override is not a commit"
+    exit 1
+fi
+if [ -z "$override" ] && ! ref_exists "refs/tags/published"; then
+    # Without it, every plugin would look new and the whole catalogue would be
+    # re-uploaded, failing on every version already published.
+    echo "::error::the tag \`published\` is missing, so there is nothing to compare against. Tag the last commit whose plugins are all on the marketplace."
+    exit 1
 fi
 
 take=""
-for dir in $changed; do
-    # Deleted in this push, or a top-level file like README.md.
-    [ -d "$dir" ] || continue
+for dir in */; do
+    dir="${dir%/}"
     manifest=$(manifest_for "$dir") || continue
+
+    base=$(base_for "$dir")
+    # Untouched since its base: nothing to say, and saying "skip" for all
+    # seventy would bury the lines that matter.
+    if git diff --quiet "$base" "$head" -- "$dir"; then
+        continue
+    fi
 
     # `--all` sweeps only directories claiming an id, and so does this. A
     # directory without one cannot be published at all, so say so rather than
@@ -75,13 +126,10 @@ for dir in $changed; do
     fi
 
     new=$(manifest_version < "$manifest")
-    old=""
+    base_manifest=$(git show "$base:$manifest" 2>/dev/null)
+    old=$(printf '%s' "$base_manifest" | manifest_version)
     had_id=""
-    if [ -n "$base" ]; then
-        base_manifest=$(git show "$base:$manifest" 2>/dev/null)
-        old=$(printf '%s' "$base_manifest" | manifest_version)
-        printf '%s' "$base_manifest" | grep -q 'marketplace_id' && had_id=1
-    fi
+    printf '%s' "$base_manifest" | grep -q 'marketplace_id' && had_id=1
 
     # A directory that did not claim an id before cannot have been published
     # under one, so its version has nothing to have moved past and the
@@ -99,7 +147,7 @@ for dir in $changed; do
     fi
 
     if [ -n "$old" ] && [ "$old" = "$new" ]; then
-        echo "  skip   $dir (changed, still v$new — bump it to publish)"
+        echo "  skip   $dir (changed since $base, still v$new: bump it to publish)"
         continue
     fi
 
@@ -108,21 +156,39 @@ for dir in $changed; do
 done
 
 if [ -z "$take" ]; then
-    echo "No plugin changed version between $base and $head; nothing to publish."
+    echo "No plugin's version moved since it was last published; nothing to publish."
     exit 0
 fi
 
 # `--yes` because there is nobody to ask. One directory per invocation rather
 # than one batch, for the same reason `--all` is unusable here: a batch refuses
-# as a unit, so one bad manifest would hold back every other plugin in the push.
+# as a unit, so one bad manifest would hold back every other plugin.
 failed=""
+landed=""
 for dir in $take; do
     echo "::group::renzora publish $dir $dry"
-    if ! renzora publish "$dir" --yes $dry; then
+    if renzora publish "$dir" --yes $dry; then
+        landed="$landed $dir"
+    else
         failed="$failed $dir"
     fi
     echo "::endgroup::"
 done
+
+# Record what landed, so the next release compares those plugins against this
+# commit. Forced, because the tag moves with every release of its plugin.
+if [ -z "$dry" ] && [ -n "$landed" ]; then
+    tags=""
+    for dir in $landed; do
+        git tag -f "published/$dir" "$head" >/dev/null
+        tags="$tags refs/tags/published/$dir"
+    done
+    # shellcheck disable=SC2086
+    if ! git push -f origin $tags; then
+        echo "::error::published$landed but could not record it; the next release will try them again and fail on the versions already uploaded. Push the published/<dir> tags by hand."
+        exit 1
+    fi
+fi
 
 if [ -n "$failed" ]; then
     echo "::error::failed to publish:$failed"

@@ -1,37 +1,52 @@
 # =============================================================================
-# Publish changed plugins to the marketplace
+# Publish changed plugins to the marketplace, when the engine releases
 # =============================================================================
 #
-# A push to `main` publishes the plugins whose **version changed** in it. This
-# workflow only ever publishes — the dry run is its own entry, `Dry run`, so
-# the Actions sidebar says which is which and neither can be fired by mistake
-# for the other. Both call the same job, so the dry run predicts this one rather
-# than approximating it.
+# Pushing to `main` publishes nothing. Push as often as you like: a plugin
+# reaches the marketplace when an engine nightly or stable release is
+# published, because that release's `build-engine.yml` sends this repository
+# an `engine-release` event once its release exists. A plugin therefore never
+# ships before an engine that can build it, which a push could not promise: a
+# plugin written against engine `main` would otherwise be offered to everyone
+# on the last nightly, who cannot compile it.
 #
-# The selection lives in `.github/scripts/publish-changed.sh`, which carries the
-# reasoning for why the diff decides what to publish instead of
-# `renzora publish --all`, and can be run by hand against any two commits:
-#
-#   .github/scripts/publish-changed.sh 5ae146d 72b3bfb --dry-run
+# What it publishes is every plugin whose **version** moved since it was last
+# published (see `.github/scripts/publish-changed.sh`). This workflow only
+# ever publishes; the dry run is its own entry, `Dry run`, so the Actions
+# sidebar says which is which and neither can be fired by mistake for the
+# other. Both call the same job, so the dry run predicts this one rather than
+# approximating it.
 name: Publish
 
 on:
-  push:
-    branches: [main]
+  # Sent by renzora/engine's `build-engine.yml` after it publishes a nightly or
+  # a stable release, with the release's tag in `client_payload.tag`.
+  repository_dispatch:
+    types: [engine-release]
   # No dry-run toggle here on purpose. A manual publish is a deliberate act and
   # this workflow's name is the whole warning; anyone wanting to look first runs
   # `Dry run`, which cannot upload at all.
   workflow_dispatch:
 
+# The run says which release asked for it, so the Actions list reads as a
+# history of what shipped with which engine.
+run-name: >-
+  ${{ github.event_name == 'repository_dispatch'
+      && format('Publish for engine {0}', github.event.client_payload.tag)
+      || 'Publish (manual)' }}
+
 concurrency:
-  # Publishing is not idempotent — a version uploads once and can never be
-  # replaced — so two runs must never overlap. Queued rather than cancelled:
+  # Publishing is not idempotent (a version uploads once and can never be
+  # replaced), so two runs must never overlap. Queued rather than cancelled:
   # cancelling mid-upload could leave a version half-created.
   group: publish
   cancel-in-progress: false
 
 jobs:
   publish:
+    # Writes the `published/<dir>` tags that record what landed.
+    permissions:
+      contents: write
     uses: ./.github/workflows/_publish-job.yml
     with:
       dry_run: false

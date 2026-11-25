@@ -2,8 +2,8 @@
 # Dry run: everything a publish checks, nothing uploaded
 # =============================================================================
 #
-# The one to reach for. Run it from the Actions tab to see exactly what a push
-# would publish, or let it run itself on a pull request.
+# The one to reach for. Run it from the Actions tab to see exactly what the
+# next engine release would publish, or let it run itself on a pull request.
 #
 # `renzora publish --dry-run` makes every check the real thing makes — the
 # category exists, the engine version is known, the `marketplace_id` is yours
@@ -25,7 +25,7 @@ on:
   workflow_dispatch:
     inputs:
       base:
-        description: "Commit, tag or branch to compare against (blank = previous commit)"
+        description: "Commit, tag or branch to compare against (blank = what each plugin was last published from)"
         type: string
         required: false
         default: ""
@@ -35,8 +35,9 @@ jobs:
     uses: ./.github/workflows/_publish-job.yml
     with:
       dry_run: true
-      # On a pull request this is ignored: the called job falls back to the
-      # event's own base when this is empty, which for a PR is the merge base.
+      # Empty on a pull request, so each plugin is compared against what it
+      # was last published from: the run shows what the next engine release
+      # would ship with this change merged.
       base: ${{ inputs.base }}
     # The dry run needs the token too. Without one it can still package a
     # directory, but it cannot check it against any listing, so it reports the
