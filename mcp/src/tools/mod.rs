@@ -32,8 +32,6 @@ mod scene;
 
 pub use observe::read_complete_png;
 pub(crate) use scene::duplicate_copy;
-pub(crate) use scene::material_handle;
-pub use scene::AssetCache;
 
 /// Drain the queue and run whatever is in it.
 ///
@@ -92,6 +90,11 @@ fn dispatch(world: &mut World, call: ToolCall) {
     // Answered by the companion, a frame or two later.
     if crate::profiler::is_profiler_tool(&name) {
         crate::profiler::start(world, &name, &args, reply);
+        return;
+    }
+    // A copy answers from its own thread when it is done.
+    if crate::files::is_file_tool(&name) {
+        crate::files::run(world, &name, &args, reply);
         return;
     }
     if crate::terrain::is_terrain_tool(&name) {
@@ -256,7 +259,18 @@ pub(crate) fn arg_vec3(args: &Value, key: &str) -> Option<Vec3> {
 fn property_value(value: &Value) -> Option<PropertyValue> {
     match value {
         Value::Bool(b) => Some(PropertyValue::Bool(*b)),
-        Value::String(s) => Some(PropertyValue::String(s.clone())),
+        // A string quoted inside its JSON (`"\"world\""`) is the RON or Rust
+        // spelling of a string, which is how a scene file and the inspector
+        // show one, so it is what a caller copies. Stored as given, the quotes
+        // became part of the value: a canvas set to `"world"` with them was
+        // in no render space at all. One layer comes off.
+        Value::String(s) => {
+            let inner = s
+                .strip_prefix('"')
+                .and_then(|r| r.strip_suffix('"'))
+                .filter(|r| !r.contains('"'));
+            Some(PropertyValue::String(inner.unwrap_or(s).to_string()))
+        }
         Value::Number(n) => Some(PropertyValue::Float(n.as_f64()? as f32)),
         Value::Array(items) => {
             let numbers: Option<Vec<f32>> = items

@@ -26,7 +26,7 @@ const PROTOCOL_VERSION: &str = "2025-06-18";
 /// builds a native plugin by calling rustc directly and cargo is what sets that
 /// variable. It compiled here only while the editor had been started through
 /// cargo and inherited it; launched any other way, the plugin failed to build.
-const SERVER_VERSION: &str = "1.6.0";
+const SERVER_VERSION: &str = "1.7.0";
 
 /// How long a tool may take before the caller is told it did not finish.
 ///
@@ -143,7 +143,8 @@ fn call(id: Value, params: &Value, tx: &Sender<ToolCall>, state: &ServerState) -
 
     let timeout = match name {
         "screenshot" | "game_screenshot" => SCREENSHOT_TIMEOUT,
-        "import_model" => IMPORT_TIMEOUT,
+        // A copy of a big folder is bounded by the disk, not by a frame.
+        "import_model" | "copy_into_project" => IMPORT_TIMEOUT,
         crate::load::TOOL => LOAD_TIMEOUT,
         n if crate::input::is_input_tool(n) => INPUT_TIMEOUT,
         _ => CALL_TIMEOUT,
@@ -227,7 +228,10 @@ is accepted too. Every edit goes on the editor's undo stack, so the user can tak
 it back with Ctrl+Z, except despawn_entity. Content is file-based: a material, \
 model, particle effect or UI template is a file in the project, and a path outside \
 the project is copied in first. list_assets shows what the project has, and with \
-source engine the engine's own presets. Save with save_scene when the user is \
+source engine the engine's own presets. Files need no dialog: list_files, read_file, \
+write_file, edit_file, delete_file, create_folder, create_scene and copy_into_project work on the project \
+directly, so prefer them to the editor's Import, Save As and New menus, which open \
+a native dialog only a person can answer. Save with save_scene when the user is \
 happy; nothing is written to the scene file until then. For anything no other tool \
 covers, use the editor as a person does: ui_find lists what can be clicked, in the \
 same pixels as screenshot, and click, drag, scroll, press_keys and type_text act \
@@ -556,7 +560,7 @@ fn catalogue() -> Value {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "request": { "type": "string", "enum": ["save_scene", "save_scene_as", "new_scene", "open_scene", "open_scene_path", "open_code_file", "open_ui_template", "export", "import_files", "import_folder", "check_updates", "tutorial", "settings", "create_node", "command_palette", "isolation"], "description": "Which request to make. Prefer open_scene_path over open_scene: the latter opens a dialog a person has to answer." },
+                    "request": { "type": "string", "enum": ["save_scene", "save_scene_as", "new_scene", "open_scene", "open_scene_path", "open_code_file", "open_ui_template", "export", "import_files", "import_folder", "check_updates", "tutorial", "settings", "create_node", "command_palette", "isolation"], "description": "Which request to make. Prefer open_scene_path over open_scene, create_scene over new_scene plus save_scene_as, and copy_into_project or import_model over import_files and import_folder: those open a dialog a person has to answer." },
                     "path": { "type": "string", "description": "For open_scene_path, open_code_file and open_ui_template." },
                     "active": { "type": "boolean", "description": "For isolation. Omit to toggle." }
                 },
@@ -796,6 +800,9 @@ fn catalogue() -> Value {
     if let (Some(list), Value::Array(load)) = (tools.as_array_mut(), crate::load::catalogue()) {
         list.extend(load);
     }
+    if let (Some(list), Value::Array(files)) = (tools.as_array_mut(), crate::files::catalogue()) {
+        list.extend(files);
+    }
     annotate(&mut tools);
     tools
 }
@@ -821,7 +828,10 @@ fn annotate(tools: &mut Value) {
             // Looking, in every case.
             "editor_state" | "read_console" | "scene_tree" | "inspect_entity" | "screenshot"
             | "list_shapes" | "list_assets" | "list_presets" | "ui_find" | "terrain_height"
-            | "memory_report" => (true, false),
+            | "memory_report" | "list_files" | "read_file" => (true, false),
+            // Replaces a file on disk, which no undo reaches. Only with
+            // overwrite, but the hint describes the worst a call can do.
+            "write_file" | "edit_file" | "copy_into_project" => (false, true),
             // Gone for good: a despawn does not reach the editor's undo stack.
             "despawn_entity" => (false, true),
             // Changes the world, recoverably by doing something else.

@@ -38,6 +38,7 @@ use std::time::Instant;
 mod b64;
 mod content;
 mod edits;
+mod files;
 mod game;
 mod http;
 mod input;
@@ -238,7 +239,6 @@ impl Plugin for McpPlugin {
             state,
         })
         .init_resource::<PendingShots>()
-        .init_resource::<tools::AssetCache>()
         .init_resource::<content::PendingImports>()
         .init_resource::<game::PendingGameShots>()
         .add_systems(

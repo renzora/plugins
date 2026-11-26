@@ -5,7 +5,7 @@ use bevy::ecs::reflect::ReflectComponent;
 use bevy::prelude::*;
 use bevy::reflect::std_traits::ReflectDefault;
 use renzora::component::ScriptComponent;
-use renzora::core::reflection::{insert_component_reflected, set_reflected_field};
+use renzora::core::reflection::insert_component_reflected;
 use renzora::serde_json::Value;
 use renzora::{CurrentProject, PropertyValue};
 use std::path::{Path, PathBuf};
@@ -76,12 +76,24 @@ pub(super) fn add_component(world: &mut World, args: &Value) -> ToolReply {
     let mut set = Vec::new();
     let mut missed = Vec::new();
     if let Some(fields) = args.get("fields").and_then(Value::as_object) {
+        // The same writer `set_component_field` uses, fallback included: the
+        // shared setter alone refused some fields that one accepts (a
+        // `ParticleSystem`'s `path` string), so a component added with its
+        // fields came back with them unset while setting each afterwards
+        // worked. A whole number is retried as an integer, as there.
         for (field, raw) in fields {
-            match property_value(raw) {
-                Some(value) if set_reflected_field(world, entity, &short_path, field, &value) => {
-                    set.push(field.clone())
+            let ok = match property_value(raw) {
+                Some(value) => {
+                    edits::write_field(world, entity, &short_path, field, &value)
+                        || matches!(value, PropertyValue::Float(f) if f.fract() == 0.0
+                            && edits::write_field(world, entity, &short_path, field, &PropertyValue::Int(f as i64)))
                 }
-                _ => missed.push(field.clone()),
+                None => false,
+            };
+            if ok {
+                set.push(field.clone());
+            } else {
+                missed.push(field.clone());
             }
         }
     }

@@ -54,6 +54,13 @@ the console of whatever project is open.
 | `make_solid` | Give colliders to an entity and every mesh under it |
 | `attach_script` / `detach_script` | Attach or remove a script file |
 | `list_assets` | Project files by kind, or the engine's presets with `source: engine` |
+| `list_files` / `read_file` | Any project folder's contents, every file type; read a text file |
+| `write_file` | Write a text file (a `.rs` script compiles as on save); replaces only with `overwrite` |
+| `edit_file` | Find and replace exact text in a project file, without resending the whole file |
+| `delete_file` | Delete a project file or folder, recoverably: it moves into `.renzora/deleted/<time>/` |
+| `create_folder` | Make a project folder, and the folders above it |
+| `create_scene` | Write a new empty `.bsn` and open it in a tab, with no Save As dialog |
+| `copy_into_project` | Copy a file or whole folder in from anywhere, every file type kept, with no dialog |
 | `set_material` | Put a `.material` on an entity's meshes, or write a new one from colours |
 | `import_model` | Copy a model into the project and convert it to `.glb`; answers when done |
 | `spawn_model` | Place an imported `.glb` in the scene |
@@ -97,6 +104,12 @@ takes it back. Undoing a despawn honestly means restoring every component of a
 whole subtree, which needs the scene serialiser, so `despawn_entity` is marked
 destructive instead. Files a tool writes or copies into the project (materials,
 imported models) stay on disk after an undo; only the scene change is reversed.
+
+**File tools stay inside the project.** Every path they write is project-relative
+(or absolute inside the project), and one that climbs out with `..` is refused;
+only `copy_into_project`'s source may be anywhere. A file they replace or write
+is not on the undo stack, so `write_file` and `copy_into_project` keep what is
+already there unless told `overwrite`.
 
 **Content is files.** A material, model, particle effect or UI template is a
 file the scene points at, because that is what a saved scene keeps. A path

@@ -28,7 +28,7 @@ use bevy::reflect::enums::{DynamicEnum, DynamicVariant};
 use bevy::reflect::{GetPath, PartialReflect, ReflectRef};
 use renzora::component::ScriptComponent;
 use renzora::physics::{CollisionShapeData, PhysicsBodyData};
-use renzora::{DefaultCamera, MaterialRef, MaterialResolved, MeshColor};
+use renzora::{DefaultCamera, MaterialRef, MaterialResolved, MeshColor, MeshPrimitive};
 use renzora::core::reflection::{get_reflected_field, set_reflected_field};
 use renzora::undo::{execute, UndoCommand, UndoContext};
 use renzora::PropertyValue;
@@ -218,7 +218,7 @@ impl UndoCommand for FieldEdit {
 /// clones, and every write to it was refused. The fallback writes through
 /// `reflect_mut` instead, which still goes through `Mut`, so change detection
 /// fires exactly as it does for the clone-and-apply path.
-fn write_field(
+pub(crate) fn write_field(
     world: &mut World,
     entity: Entity,
     component: &str,
@@ -550,9 +550,8 @@ impl UndoCommand for MaterialEdit {
 /// Going back to no file is the awkward direction. The resolver swapped the
 /// mesh's `StandardMaterial` for a material type this plugin cannot name, and
 /// dropping `MaterialRef` does not swap it back, so the mesh would keep looking
-/// assigned until the scene reloaded. Every `MeshMaterial3d<T>` other than the
-/// standard one is removed by reflection, and a plain one is rebuilt from the
-/// `MeshColor` the shape was spawned with.
+/// assigned until the scene reloaded. For a shape, every `MeshMaterial3d<T>`
+/// comes off by reflection with its `Mesh3d`, and the engine rebuilds both.
 fn write_material(world: &mut World, entity: Entity, value: Option<&str>) {
     let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
         return;
@@ -564,26 +563,26 @@ fn write_material(world: &mut World, entity: Entity, value: Option<&str>) {
     }
     entity_mut.remove::<MaterialRef>();
 
-    let Some(color) = world.get::<MeshColor>(entity).map(|c| c.0.to_linear()) else {
+    // A shape goes back to what the engine gives an unmaterialed shape: every
+    // material comes off with its mesh, and the engine's mesh rehydration
+    // rebuilds both from the shape id and colour, exactly as a reload would.
+    if world.get::<MeshPrimitive>(entity).is_none() || world.get::<MeshColor>(entity).is_none() {
+        return;
+    }
+    let registry = world.resource::<AppTypeRegistry>().clone();
+    let registry = registry.read();
+    let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
         return;
     };
-    let registry = world.resource::<AppTypeRegistry>().clone();
-    {
-        let registry = registry.read();
-        let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
-            return;
-        };
-        for registration in registry.iter() {
-            let path = registration.type_info().type_path();
-            if path.contains("MeshMaterial3d<") && !path.contains("StandardMaterial") {
-                if let Some(reflect_component) = registration.data::<ReflectComponent>() {
-                    reflect_component.remove(&mut entity_mut);
-                }
+    for registration in registry.iter() {
+        let path = registration.type_info().type_path();
+        if path.contains("MeshMaterial3d<") {
+            if let Some(reflect_component) = registration.data::<ReflectComponent>() {
+                reflect_component.remove(&mut entity_mut);
             }
         }
     }
-    let handle = crate::tools::material_handle(world, Vec3::new(color.red, color.green, color.blue));
-    world.entity_mut(entity).insert(MeshMaterial3d(handle));
+    entity_mut.remove::<Mesh3d>();
 }
 
 /// Assign `after` to every entity, undoably.

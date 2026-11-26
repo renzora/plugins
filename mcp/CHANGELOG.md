@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.7.0
+
+- feat: `list_files` and `read_file` show any project folder and read any text file, every file type included.
+- feat: `write_file` writes a text file into the project, and a `.rs` script written this way compiles as if saved.
+- feat: `edit_file` changes part of a project file by exact find and replace.
+- feat: `create_folder` makes a project folder without a dialog.
+- feat: `delete_file` deletes a project file or folder by moving it into `.renzora/deleted/`, so it can be got back.
+- feat: `create_scene` creates a new empty scene and opens it in a tab without a Save As dialog.
+- feat: `copy_into_project` copies a file or a whole folder into the project without a dialog, keeping file types the importer drops.
+- fix: the handshake reports the plugin's real version.
+- fix: a shape from `spawn_entity` looks the same after its scene is saved and reopened, or streamed back from a world partition cell.
+- fix: `set_material` works on a shape straight after `spawn_entity`, before its mesh has been built.
+- fix: `add_component` sets the fields it is given wherever `set_component_field` could, such as a particle system's effect path.
+- fix: `set_component_field` takes a string written with its quotes (`"\"world\""`) as the string inside them.
+
 ## 1.6.0
 
 - feat: `project_load` reports how long the last project load took, stage by stage, and with `reload` reopens the project and times a fresh load. With `wait` it times the next load however it starts, such as a project opened from the launcher.

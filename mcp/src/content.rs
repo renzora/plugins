@@ -349,7 +349,10 @@ pub fn set_material(world: &mut World, args: &Value) -> ToolReply {
     let mut targets = Vec::new();
     let mut stack = vec![entity];
     while let Some(at) = stack.pop() {
-        if world.get::<Mesh3d>(at).is_some() {
+        // A shape counts before its mesh exists: `spawn_entity` leaves the
+        // mesh to the engine, which builds it from `MeshPrimitive` next frame,
+        // so a material set straight after a spawn found no mesh and failed.
+        if world.get::<Mesh3d>(at).is_some() || world.get::<renzora::MeshPrimitive>(at).is_some() {
             targets.push(at);
         }
         if recursive {

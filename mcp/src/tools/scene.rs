@@ -2,7 +2,6 @@
 //! transforms, names, parents and copies.
 
 use bevy::ecs::component::ComponentId;
-use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 // The engine's physics data, not a physics engine's: it saves with the scene
 // and is simulated by whichever backend the project selected.
@@ -80,30 +79,21 @@ fn spawn_from_args(world: &mut World, args: &Value) -> Result<Entity, String> {
         // A bare transform, which is what an empty group or a marker wants.
         world.spawn(transform).id()
     } else {
-        let Some(mesh) = mesh_handle(world, shape) else {
+        if world.get_resource::<ShapeRegistry>().and_then(|r| r.get(shape)).is_none() {
             return Err(format!(
                 "no shape called {shape}; call list_shapes for what this project has"
             ));
-        };
+        }
         let color = arg_vec3(args, "color").unwrap_or(Vec3::ONE);
         let linear = Color::linear_rgb(color.x, color.y, color.z);
-        let material = material_handle(world, color);
-        world
-            .spawn((
-                transform,
-                Mesh3d(mesh),
-                MeshMaterial3d(material),
-                // The pair that survives a save. `Mesh3d` holds a handle to an
-                // asset this plugin generated, which has no path on disk, so a
-                // saved scene has nothing to point at and the entity comes back
-                // as a transform with no geometry. That is not hypothetical: the
-                // first arena built with this tool reloaded as 421 invisible
-                // entities. The shape id and the colour are what the engine
-                // rehydrates the mesh and material FROM.
-                MeshPrimitive(shape.to_string()),
-                MeshColor(linear),
-            ))
-            .id()
+        // Only the pair a save keeps: the shape id and the colour. The engine
+        // builds the mesh and material from them (its mesh rehydration, the
+        // same path a loaded scene takes), next frame. This tool used to build
+        // them itself, with a plain material where the engine puts its tinted
+        // blockout grid, so every shape changed look the first time its scene
+        // was saved and opened again (or written into a world partition cell
+        // and streamed back): what was built here was never what came back.
+        world.spawn((transform, MeshPrimitive(shape.to_string()), MeshColor(linear))).id()
     };
     unique_name(world, entity, name);
 
@@ -165,66 +155,6 @@ pub(super) fn list_shapes(world: &mut World) -> ToolReply {
     ToolReply::Text(out.trim_start().to_string())
 }
 
-/// Meshes and materials already built, so a scene of five hundred crates is one
-/// cube mesh and one brown material rather than five hundred of each.
-///
-/// Not a micro-optimisation. Bevy batches draws by handle, so a unique handle
-/// per entity defeats batching outright: the first arena built with this plugin
-/// was 415 entities carrying 415 meshes and 415 materials, and cost 3 ms a frame
-/// that it did not need to.
-#[derive(Resource, Default)]
-pub struct AssetCache {
-    meshes: HashMap<String, Handle<Mesh>>,
-    /// Keyed by the colour quantised to 8 bits a channel. Two colours a caller
-    /// wrote as 0.2 and 0.2000001 are the same material to anyone looking at it,
-    /// and keying on raw `f32` would make them two.
-    materials: HashMap<[u8; 3], Handle<StandardMaterial>>,
-}
-
-/// The mesh for a shape id, built by the engine's own factory.
-///
-/// Through [`ShapeRegistry`] rather than building a `Cuboid` here, so a cube
-/// spawned by this plugin is the same mesh as a cube from the Shape Library:
-/// same winding, same UVs, same size convention, and the same rehydration on
-/// load. Two definitions of "cube" in one project is a bug waiting for whichever
-/// of them is wrong.
-fn mesh_handle(world: &mut World, shape: &str) -> Option<Handle<Mesh>> {
-    if let Some(handle) = world.resource::<AssetCache>().meshes.get(shape) {
-        return Some(handle.clone());
-    }
-    // The registry owns the factory and `Assets<Mesh>` is a separate resource,
-    // so the two are taken one at a time rather than held together.
-    let registry = world.get_resource::<ShapeRegistry>()?;
-    let create = registry.get(shape)?.create_mesh;
-    let handle = world.resource_scope(|_, mut meshes: Mut<Assets<Mesh>>| create(&mut meshes));
-    world
-        .resource_mut::<AssetCache>()
-        .meshes
-        .insert(shape.to_string(), handle.clone());
-    Some(handle)
-}
-
-pub(crate) fn material_handle(world: &mut World, color: Vec3) -> Handle<StandardMaterial> {
-    let key = [
-        (color.x.clamp(0.0, 1.0) * 255.0).round() as u8,
-        (color.y.clamp(0.0, 1.0) * 255.0).round() as u8,
-        (color.z.clamp(0.0, 1.0) * 255.0).round() as u8,
-    ];
-    if let Some(handle) = world.resource::<AssetCache>().materials.get(&key) {
-        return handle.clone();
-    }
-    let handle = world
-        .resource_mut::<Assets<StandardMaterial>>()
-        .add(StandardMaterial {
-            base_color: Color::linear_rgb(color.x, color.y, color.z),
-            ..default()
-        });
-    world
-        .resource_mut::<AssetCache>()
-        .materials
-        .insert(key, handle.clone());
-    handle
-}
 
 /// A collider at unit size, to be scaled by the entity's own transform.
 ///
