@@ -171,12 +171,20 @@ done
 if [ -n "$stage" ]; then
     # Every plugin as it stands at <head>, then the held-back ones replaced
     # by their base: the tree the marketplace lists after this release.
+    #
+    # Extracted from inside <dir> rather than with `tar -C <dir>`: GNU tar
+    # reads a Windows path such as `D:\a\_temp\plugins` as host `D` on a
+    # remote machine, and the engine's Windows lanes pass exactly that. A
+    # failed extract stops the script, because a stage that reports success
+    # with nothing in it makes the caller check, and publish, nothing.
     mkdir -p "$stage"
-    git archive "$head" | tar -x -C "$stage"
+    git archive "$head" | (cd "$stage" && tar -x) \
+        || { echo "could not extract $head into $stage" >&2; exit 1; }
     for dir in $held; do
         base=$(base_for "$dir")
         rm -rf "${stage:?}/$dir"
-        git archive "$base" -- "$dir" | tar -x -C "$stage"
+        git archive "$base" -- "$dir" | (cd "$stage" && tar -x) \
+            || { echo "could not extract $dir at $base into $stage" >&2; exit 1; }
         echo "  staged $dir at $base (unreleased changes held back)"
     done
     echo "Staged the release's plugin sources in $stage"
