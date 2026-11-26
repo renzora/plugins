@@ -15,7 +15,8 @@
 //!
 //! # Saves
 //!
-//! Unless `saves = false` in `mongodb.toml`, installs a
+//! When a `mongodb.toml` is found that leaves `saves` on (never on the
+//! defaults alone), installs a
 //! [`renzora::save::SaveBackend`] so `save_write`, `save_load` and the rest go
 //! to a collection (`db.rs`). Remove the plugin and they go back to files.
 //!
@@ -81,14 +82,21 @@ impl Plugin for MongoPlugin {
 fn follow_project(project: Res<CurrentProject>, saves: Res<MongoSaves>, mut scripts: ResMut<script::MongoScripts>) {
     match config::find(exe_dir().as_deref(), Some(project.path.as_path())) {
         Ok((config, source)) => {
+            // The save slots only on request: a `mongodb.toml` that leaves
+            // `saves` on. Without one, the project never asked for a database,
+            // and the engine's own save files are what it expects; claiming
+            // them on the defaults sent every project in an editor with this
+            // plugin installed to a server that was usually not running, and
+            // each save waited out the connection timeout and then failed.
+            let keeps_saves = config.saves && matches!(source, config::Source::File(_));
             info!(
                 "[mongodb] \"{}\" uses {} / {}{}, from {source}",
                 project.config.name,
                 config::redacted(&config.url),
                 config.database,
-                if config.saves { format!(", saves in `{}`", config.collection) } else { String::new() },
+                if keeps_saves { format!(", saves in `{}`", config.collection) } else { String::new() },
             );
-            if config.saves {
+            if keeps_saves {
                 claim_saves(&saves.0);
             } else if renzora::save::backend_name().as_deref() == Some(BACKEND) {
                 renzora::save::set_backend(None);

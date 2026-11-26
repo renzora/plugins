@@ -9,7 +9,7 @@
 
 [package]
 name = "mysql_plugin"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 description = "Connect a game to MySQL: run SQL from scripts, spawn and save entities from rows, and keep save slots in the database."
 

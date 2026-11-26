@@ -13,8 +13,8 @@
 //!
 //! # Saves
 //!
-//! Installs a [`renzora::save::SaveBackend`] (unless `saves = false` in
-//! `mysql.toml`), so every slot call a game already
+//! Installs a [`renzora::save::SaveBackend`] when a `mysql.toml` is found that
+//! leaves `saves` on (never on the defaults alone), so every slot call a game already
 //! makes (`save_write`, `save_load`, `save_exists`, `save_delete`, `save_slots`,
 //! from Lua or from a Rust script through `renzora::save`) lands in a MySQL table
 //! instead of a `.json` file. A game's scripts do not change to use it, and do
@@ -104,15 +104,22 @@ impl Plugin for MySqlPlugin {
 fn follow_project(project: Res<CurrentProject>, saves: Res<MySqlSaves>, mut scripts: ResMut<script::MySqlScripts>) {
     match config::find(exe_dir().as_deref(), Some(project.path.as_path())) {
         Ok((config, source)) => {
+            // The save slots only on request: a `mysql.toml` that leaves
+            // `saves` on. Without one, the project never asked for a database,
+            // and the engine's own save files are what it expects; claiming
+            // them on the defaults sent every project in an editor with this
+            // plugin installed to a server that was usually not running, and
+            // each save waited out the connection timeout and then failed.
+            let keeps_saves = config.saves && matches!(source, config::Source::File(_));
             info!(
                 "[mysql] \"{}\" uses {}{}, from {source}",
                 project.config.name,
                 config::redacted(&config.url),
-                if config.saves { format!(", saves in table `{}`", config.table) } else { String::new() },
+                if keeps_saves { format!(", saves in table `{}`", config.table) } else { String::new() },
             );
             // The project's file can turn saves off (or on) after the backend
             // was decided from the executable's folder alone.
-            if config.saves {
+            if keeps_saves {
                 claim_saves(&saves.0);
             } else if renzora::save::backend_name().as_deref() == Some(BACKEND) {
                 renzora::save::set_backend(None);

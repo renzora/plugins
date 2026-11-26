@@ -47,7 +47,9 @@ pub struct Config {
     /// How long one read or write may take once connected.
     pub io_timeout: Duration,
     /// Keep the game's save slots in MySQL (the save backend). Off leaves
-    /// saves in the save folder while scripts still query the database.
+    /// saves in the save folder while scripts still query the database. Only
+    /// read from a file: with no `mysql.toml` the slots are never claimed,
+    /// whatever this default says.
     pub saves: bool,
     /// Let a networked client run the script functions. Off by default: a
     /// client is the player's machine, so a client that can query holds the

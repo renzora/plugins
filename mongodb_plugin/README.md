@@ -102,7 +102,7 @@ The whole document stays on the entity in the `MongoDoc` component (`data`, as J
 
 ## Save slots
 
-Unless `saves = false`, the plugin takes over the engine's save slots: `save_write`, `save_load`, `save_exists`, `save_delete` and `save_slots` go to the collection `renzora_saves`, one document per game and slot (`game`, `slot`, `data`, `saved_at`), holding the same JSON a slot file would. Remove the plugin and those calls go back to files.
+With a `mongodb.toml` (beside the game, or in the project folder) that leaves `saves` on, the plugin takes over the engine's save slots. Without one it leaves them alone, so installing the plugin never moves a project's saves out of its save files until that project asks: `save_write`, `save_load`, `save_exists`, `save_delete` and `save_slots` go to the collection `renzora_saves`, one document per game and slot (`game`, `slot`, `data`, `saved_at`), holding the same JSON a slot file would. Remove the plugin and those calls go back to files.
 
 When the server is down, the first save call waits out `connect_timeout_secs` (2 seconds by default) and fails with the reason. Every later call fails at once with the same reason while the plugin checks every 5 seconds in the background, and the next call after the server answers just works.
 
