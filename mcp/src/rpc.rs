@@ -236,7 +236,8 @@ happy; nothing is written to the scene file until then. For anything no other to
 covers, use the editor as a person does: ui_find lists what can be clicked, in the \
 same pixels as screenshot, and click, drag, scroll, press_keys and type_text act \
 through real mouse and keyboard input, shown to the user as an orange MCP cursor. \
-Take a screenshot after acting to see the result.";
+ime_compose types through an input method (preedit, then commit) to test Korean, \
+Japanese or Chinese input. Take a screenshot after acting to see the result.";
 
 /// An entity id, described once so every tool that takes one agrees.
 fn entity_arg(description: &str) -> Value {
@@ -371,7 +372,7 @@ fn catalogue() -> Value {
         },
         {
             "name": "game_input",
-            "description": "Press keys and gamepad controls in the running game, all at once, each released after its hold time. Gamepad input arrives on a virtual pad the game sees as a real one. To walk: a gamepad_axis LeftStickY of 1 held for a second. Follow with game_screenshot to see the result.",
+            "description": "Press keys and gamepad controls, move and click the mouse, type text and send input-method (IME) composition in the running game. Actions in one call arrive in the same frame, in order; buttons are released after their hold time. Gamepad input arrives on a virtual pad the game sees as a real one. To walk: a gamepad_axis LeftStickY of 1 held for a second. To click the game's UI: one call with pointer at a point from game_screenshot, then a second with mouse_button Left, so hover lands first. key only presses a KeyCode for gameplay; text fields need text. Follow with game_screenshot to see the result.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -384,6 +385,13 @@ fn catalogue() -> Value {
                                 "gamepad_button": { "type": "string", "description": "A GamepadButton name: South (A / Cross), East, West, North, RightTrigger2, LeftTrigger2, Start, DPadUp." },
                                 "gamepad_axis": { "type": "string", "description": "A GamepadAxis name: LeftStickX, LeftStickY (up is positive), RightStickX, RightStickY." },
                                 "value": { "type": "number", "description": "Axis position -1 to 1 (required for an axis), or button pressure 0 to 1 (default 1)." },
+                                "pointer": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2, "description": "Move the mouse to [x, y] in game_screenshot pixels." },
+                                "mouse_button": { "type": "string", "description": "A MouseButton name: Left, Right, Middle. Pressed where the pointer is, released after hold_seconds." },
+                                "text": { "type": "string", "description": "Type these characters into whatever text field the game has focused." },
+                                "ime_preedit": { "type": "string", "description": "An input method's composition so far, as the OS IME sends it. An empty string ends it." },
+                                "cursor": { "description": "For ime_preedit: the IME caret as [start, end] byte offsets, or null to hide it. Default: after the text." },
+                                "ime_commit": { "type": "string", "description": "Text an input method hands over." },
+                                "consumed": { "type": "boolean", "description": "For ime_preedit and ime_commit: precede it with the Process key the IME swallowed, as Windows does (default true)." },
                                 "hold_seconds": { "type": "number", "description": "How long before it is released (default 0.15)." }
                             }
                         }

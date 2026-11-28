@@ -25,6 +25,17 @@
 //! it. Typing is the exception: text fields read every key message in a frame,
 //! in order, so a character's press and release can share one.
 //!
+//! # Input methods
+//!
+//! `ime_compose` plays what an input method sends, rather than keys: the
+//! syllable being built (`Ime::Preedit`) and the text it finally hands over
+//! (`Ime::Commit`), each normally preceded by the key the IME swallowed to make
+//! it, which winit reports as `Key::Process`. Typing a character with
+//! `type_text` cannot test composition at all, because a field that mishandles
+//! a half-built syllable only ever sees one in a preedit. The events are what
+//! the operating system would deliver, so they are honest only while the
+//! window has its IME switched on; a run says when it was not.
+//!
 //! # The user's own cursor is left alone
 //!
 //! Plenty of editor code reads `Window::cursor_position` rather than picking, so
@@ -60,7 +71,7 @@ use bevy::math::DVec2;
 use bevy::picking::PickingSystems;
 use bevy::prelude::*;
 use bevy::ui::{CalculatedClip, ComputedNode, Pressed, UiGlobalTransform, UiScale};
-use bevy::window::{PrimaryWindow, RawCursorMoved, WindowEvent};
+use bevy::window::{Ime, PrimaryWindow, RawCursorMoved, WindowEvent};
 use renzora::serde_json::{json, Value};
 use renzora::HideInHierarchy;
 use renzora::ui::workspace::WorkspaceSwitch;
@@ -90,7 +101,18 @@ const CHARS_PER_FRAME: usize = 2;
 
 /// The tools that act through input and therefore answer a few frames later.
 pub fn is_input_tool(name: &str) -> bool {
-    matches!(name, "click" | "drag" | "move_mouse" | "scroll" | "press_keys" | "type_text")
+    matches!(name, "click" | "drag" | "move_mouse" | "scroll" | "press_keys" | "type_text" | "ime_compose")
+}
+
+/// Most steps one `ime_compose` run takes. A long sentence is a few hundred.
+const MAX_IME_STEPS: usize = 500;
+
+/// One thing an input method tells the window.
+enum ImeEvent {
+    /// The text being composed and the IME's caret in it, as byte offsets.
+    /// `None` hides the caret, as some IMEs do mid-conversion.
+    Preedit { value: String, cursor: Option<(usize, usize)> },
+    Commit(String),
 }
 
 // ============================================================================
@@ -105,6 +127,10 @@ enum Step {
     /// Characters typed as press-and-release pairs, a few per frame.
     Type(VecDeque<char>),
     Wheel { lines: f32 },
+    /// An input method event, after a `Key::Process` press when `consumed`:
+    /// on Windows the key that built or finished a syllable reaches the window
+    /// as `VK_PROCESSKEY` in the same message pump as the composition change.
+    Ime { event: ImeEvent, consumed: bool },
     Wait(u32),
 }
 
@@ -119,6 +145,9 @@ struct Job {
     /// Progress through the current glide: where it started and frames done.
     glide: Option<(Vec2, u32)>,
     started: Instant,
+    /// IME events sent while the window's IME was switched off, which a real
+    /// input method could never have delivered.
+    ime_while_off: u32,
 }
 
 /// Queued input runs, the agent's pointer, and what it is holding down.
@@ -180,6 +209,7 @@ pub fn start(world: &mut World, name: &str, args: &Value, reply: Sender<ToolRepl
                 look_for_press: false,
                 glide: None,
                 started: Instant::now(),
+                ime_while_off: 0,
             });
         }
         Err(why) => {
@@ -287,6 +317,13 @@ fn play_frame(world: &mut World, window: Entity, player: &mut InputPlayer, moved
             if !took.is_empty() {
                 text.push_str(&format!(". The press went to: {}", took.join("; ")));
             }
+            if job.ime_while_off > 0 {
+                text.push_str(&format!(
+                    ". Warning: the window's IME was switched off for {} of these events, so a real \
+                     input method would not have delivered them; whatever has focus did not ask for IME input",
+                    job.ime_while_off
+                ));
+            }
             let _ = job.reply.send(ToolReply::Text(text));
         }
         player.owns_cursor = player.pos.is_some();
@@ -358,6 +395,21 @@ fn step(world: &mut World, window: Entity, player: &mut InputPlayer) -> bool {
         Step::Wheel { lines } => {
             let lines = *lines;
             write_wheel(world, window, lines);
+        }
+        Step::Ime { event, consumed } => {
+            if !world.get::<Window>(window).is_some_and(|w| w.ime_enabled) {
+                job.ime_while_off += 1;
+            }
+            // Unidentified rather than a letter's physical key, so a swallowed
+            // key can never fire a shortcut that reads `KeyCode`.
+            let process = KeyCode::Unidentified(NativeKeyCode::Unidentified);
+            if *consumed {
+                write_key(world, window, process, Key::Process, true, None);
+            }
+            write_ime(world, window, event);
+            if *consumed {
+                write_key(world, window, process, Key::Process, false, None);
+            }
         }
         Step::Wait(frames) => {
             if *frames > 1 {
@@ -460,6 +512,14 @@ fn write_key(world: &mut World, window: Entity, code: KeyCode, key: Key, down: b
         window,
     };
     world.write_message(WindowEvent::from(input));
+}
+
+fn write_ime(world: &mut World, window: Entity, event: &ImeEvent) {
+    let ime = match event {
+        ImeEvent::Preedit { value, cursor } => Ime::Preedit { window, value: value.clone(), cursor: *cursor },
+        ImeEvent::Commit(value) => Ime::Commit { window, value: value.clone() },
+    };
+    world.write_message(WindowEvent::from(ime));
 }
 
 fn write_wheel(world: &mut World, window: Entity, lines: f32) {
@@ -602,8 +662,88 @@ fn plan(world: &mut World, name: &str, args: &Value) -> Result<Plan, String> {
             steps.push_back(Step::Wait(2));
             Ok((steps, format!("typed {} characters", text.chars().count()), format!("type \"{}\"", short(text))))
         }
+        "ime_compose" => {
+            let Some(list) = args.get("steps").and_then(Value::as_array) else {
+                return Err("ime_compose needs steps, such as [{\"preedit\": \"ㅎ\"}, {\"preedit\": \"한\"}, {\"commit\": \"한\"}]".into());
+            };
+            if list.is_empty() {
+                return Err("ime_compose needs at least one step".into());
+            }
+            if list.len() > MAX_IME_STEPS {
+                return Err(format!("ime_compose takes at most {MAX_IME_STEPS} steps at a time"));
+            }
+            let consumed_default = args.get("consumed_keys").and_then(Value::as_bool).unwrap_or(true);
+            let mut committed = String::new();
+            for (i, item) in list.iter().enumerate() {
+                ime_step(&mut steps, item, consumed_default, &mut committed).map_err(|why| format!("step {}: {why}", i + 1))?;
+                // A frame between steps, as keystrokes are never in the same
+                // frame: focus handling and the duplicate-commit guard both
+                // work across frames, and would be skipped by a burst.
+                steps.push_back(Step::Wait(1));
+            }
+            steps.push_back(Step::Wait(2));
+            let summary = if committed.is_empty() {
+                format!("sent {} IME steps, committing nothing", list.len())
+            } else {
+                format!("sent {} IME steps, committing \"{committed}\"", list.len())
+            };
+            Ok((steps, summary, format!("IME \"{}\"", short(&committed))))
+        }
         other => Err(format!("{other} is not an input tool")),
     }
+}
+
+/// One `ime_compose` step: `{"preedit": text, "cursor": [a, b] | null}`,
+/// `{"commit": text}` or `{"key": chord}`, each optionally with `consumed`.
+fn ime_step(steps: &mut VecDeque<Step>, item: &Value, consumed_default: bool, committed: &mut String) -> Result<(), String> {
+    let consumed = item.get("consumed").and_then(Value::as_bool).unwrap_or(consumed_default);
+    if let Some(value) = item.get("preedit") {
+        let value = value.as_str().ok_or("preedit is a string")?.to_string();
+        let cursor = match item.get("cursor") {
+            // winit puts the caret after the composed text unless the IME
+            // says otherwise, so that is the default.
+            None => Some((value.len(), value.len())),
+            Some(Value::Null) => None,
+            Some(Value::Array(ab)) => {
+                let n = |i: usize| ab.get(i).and_then(Value::as_u64).map(|v| v as usize);
+                let (Some(a), Some(b), 2) = (n(0), n(1), ab.len()) else {
+                    return Err("cursor is [start, end] in bytes of the preedit, or null to hide it".into());
+                };
+                // Offsets a real IME could not send would test the tool, not
+                // the field.
+                for at in [a, b] {
+                    if !value.is_char_boundary(at) {
+                        return Err(format!(
+                            "cursor offset {at} is not a character boundary of \"{value}\" ({} bytes); offsets are bytes, so each Hangul syllable is 3",
+                            value.len()
+                        ));
+                    }
+                }
+                Some((a, b))
+            }
+            Some(_) => return Err("cursor is [start, end] in bytes of the preedit, or null to hide it".into()),
+        };
+        steps.push_back(Step::Ime { event: ImeEvent::Preedit { value, cursor }, consumed });
+        return Ok(());
+    }
+    if let Some(value) = item.get("commit") {
+        let value = value.as_str().ok_or("commit is a string")?.to_string();
+        committed.push_str(&value);
+        steps.push_back(Step::Ime { event: ImeEvent::Commit(value), consumed });
+        return Ok(());
+    }
+    if let Some(chord) = item.get("key") {
+        let chord = chord.as_str().ok_or("key is a chord such as \"space\" or \"backspace\"")?;
+        let parts = parse_chord(chord)?;
+        for (code, key) in &parts {
+            steps.push_back(Step::Key { code: *code, key: key.clone(), down: true });
+        }
+        for (code, key) in parts.iter().rev() {
+            steps.push_back(Step::Key { code: *code, key: key.clone(), down: false });
+        }
+        return Ok(());
+    }
+    Err("each step is {\"preedit\": ...}, {\"commit\": ...} or {\"key\": ...}".into())
 }
 
 fn glide(from: Option<Vec2>, to: Vec2) -> Step {
@@ -1375,6 +1515,30 @@ pub fn catalogue() -> Value {
                     "enter": { "type": "boolean", "description": "Press Enter afterwards." }
                 },
                 "required": ["text"]
+            }
+        },
+        {
+            "name": "ime_compose",
+            "description": "Type through an input method (Korean, Japanese, Chinese) the way the OS IME delivers it: preedit updates for the text being composed, then a commit. type_text cannot test composition. Click a field first. Each step is one of {\"preedit\": text, \"cursor\": [start, end] bytes or null}, {\"commit\": text}, {\"key\": chord}. Korean 한글 then a space, as the Microsoft IME sends it: [{\"preedit\":\"ㅎ\"},{\"preedit\":\"하\"},{\"preedit\":\"한\"},{\"commit\":\"한\"},{\"preedit\":\"ㄱ\",\"consumed\":false},{\"preedit\":\"그\"},{\"preedit\":\"글\"},{\"commit\":\"글\",\"consumed\":false},{\"key\":\"space\"}]. An empty preedit ends a composition. The reply warns when the window's IME was off, meaning whatever had focus did not ask for IME input.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "steps": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "preedit": { "type": "string" },
+                                "cursor": { "description": "The IME caret in the preedit as [start, end] byte offsets, or null to hide it. Default: after the text." },
+                                "commit": { "type": "string" },
+                                "key": { "type": "string", "description": "A key that reaches the window as itself, such as \"space\", \"backspace\", \"enter\" or \"left\"." },
+                                "consumed": { "type": "boolean", "description": "Send the Process key the IME swallowed before this preedit or commit. Overrides consumed_keys." }
+                            }
+                        }
+                    },
+                    "consumed_keys": { "type": "boolean", "description": "Precede each preedit and commit with a Process key press, as Windows does for a key the IME took (default true)." }
+                },
+                "required": ["steps"]
             }
         },
         {

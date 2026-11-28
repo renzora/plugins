@@ -26,6 +26,10 @@
 //! are despawning and removing a component, which the tool list marks
 //! destructive.
 
+// The tool catalogue is one `json!` literal per module, and the default limit
+// of 128 macro expansions runs out once a tool's schema grows a few fields.
+#![recursion_limit = "256"]
+
 use bevy::prelude::*;
 use renzora::core::console_log::{console_error, console_info};
 use renzora::{RenzoraShellExt, ShellStatusAlign, ShellStatusItem, ShellStatusSegment};

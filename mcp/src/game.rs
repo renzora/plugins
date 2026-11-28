@@ -92,7 +92,29 @@ pub fn collect_game_screenshots(world: &mut World) {
     world.resource_mut::<PendingGameShots>().0.extend(pending);
 }
 
-/// Press keys and gamepad controls in the running game, each held for its
+/// The IME caret for a preedit: after the text by default, `null` to hide
+/// it, or `[start, end]` byte offsets, which must fall on character
+/// boundaries because a real IME's always do.
+fn ime_cursor(value: &str, cursor: Option<&Value>) -> Result<Option<(usize, usize)>, String> {
+    match cursor {
+        None => Ok(Some((value.len(), value.len()))),
+        Some(Value::Null) => Ok(None),
+        Some(Value::Array(ab)) => {
+            let n = |i: usize| ab.get(i).and_then(Value::as_u64).map(|v| v as usize);
+            let (Some(a), Some(b), 2) = (n(0), n(1), ab.len()) else {
+                return Err("cursor is [start, end] in bytes of the preedit, or null".into());
+            };
+            if !value.is_char_boundary(a) || !value.is_char_boundary(b) {
+                return Err(format!("cursor [{a}, {b}] does not fall on character boundaries of \"{value}\""));
+            }
+            Ok(Some((a, b)))
+        }
+        Some(_) => Err("cursor is [start, end] in bytes of the preedit, or null".into()),
+    }
+}
+
+/// Press keys and gamepad controls, move and click the mouse, type, and send
+/// IME composition in the running game. Buttons and keys are held for their
 /// `hold_seconds` and then released.
 pub fn game_input(world: &mut World, args: &Value) -> ToolReply {
     let Some(actions) = args.get("actions").and_then(Value::as_array) else {
@@ -107,7 +129,34 @@ pub fn game_input(world: &mut World, args: &Value) -> ToolReply {
             .unwrap_or(DEFAULT_HOLD)
             .max(0.0);
         let value = action.get("value").and_then(Value::as_f64).map(|v| v as f32);
-        let input = if let Some(code) = action.get("key").and_then(Value::as_str) {
+        let consumed = action.get("consumed").and_then(Value::as_bool).unwrap_or(true);
+        // Done the moment they are sent: nothing to release.
+        let instant = if let Some(xy) = action.get("pointer").and_then(Value::as_array) {
+            let n = |i: usize| xy.get(i).and_then(Value::as_f64).map(|v| v as f32);
+            let (Some(x), Some(y)) = (n(0), n(1)) else {
+                return ToolReply::Failed(format!("action {i}: pointer is [x, y] in game_screenshot pixels"));
+            };
+            Some(GameInput::Pointer { x, y })
+        } else if let Some(text) = action.get("text").and_then(Value::as_str) {
+            Some(GameInput::Text { text: text.to_string() })
+        } else if let Some(preedit) = action.get("ime_preedit").and_then(Value::as_str) {
+            let cursor = match ime_cursor(preedit, action.get("cursor")) {
+                Ok(c) => c,
+                Err(why) => return ToolReply::Failed(format!("action {i}: {why}")),
+            };
+            Some(GameInput::ImePreedit { value: preedit.to_string(), cursor, consumed })
+        } else if let Some(commit) = action.get("ime_commit").and_then(Value::as_str) {
+            Some(GameInput::ImeCommit { value: commit.to_string(), consumed })
+        } else {
+            None
+        };
+        if let Some(input) = instant {
+            queued.push((input, None));
+            continue;
+        }
+        let input = if let Some(button) = action.get("mouse_button").and_then(Value::as_str) {
+            GameInput::MouseButton { button: button.to_string(), pressed: true }
+        } else if let Some(code) = action.get("key").and_then(Value::as_str) {
             GameInput::Key { code: code.to_string(), pressed: true }
         } else if let Some(button) = action.get("gamepad_button").and_then(Value::as_str) {
             GameInput::GamepadButton { button: button.to_string(), value: value.unwrap_or(1.0) }
@@ -118,7 +167,7 @@ pub fn game_input(world: &mut World, args: &Value) -> ToolReply {
             GameInput::GamepadAxis { axis: axis.to_string(), value }
         } else {
             return ToolReply::Failed(format!(
-                "action {i}: give one of key, gamepad_button or gamepad_axis"
+                "action {i}: give one of key, gamepad_button, gamepad_axis, pointer, mouse_button, text, ime_preedit or ime_commit"
             ));
         };
         queued.push((input, Some(hold)));

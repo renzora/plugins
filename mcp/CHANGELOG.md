@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.8.0
+
+- feat: `ime_compose` types through an input method, sending preedit and commit events as the OS IME does, to test Korean, Japanese and Chinese input.
+- feat: `game_input` moves and clicks the mouse, types text and sends IME composition in the running game (`pointer`, `mouse_button`, `text`, `ime_preedit`, `ime_commit`). Needs an r1-alpha8 nightly whose live link carries them.
+
 ## 1.7.0
 
 - feat: `list_files` and `read_file` show any project folder and read any text file, every file type included.
